@@ -178,12 +178,24 @@ def implement_and_evaluate(
         bus.emit("agent_start", agent="evaluator")
 
         eval_session = fresh_session_id()
+
+        eval_prompt = f"## Sprint Contract\n{contract}\n\n"
+        if cycle > 1 and eval_failures:
+            eval_prompt += (
+                f"## Previous Evaluation (Cycle {cycle - 1})\n"
+                "A prior evaluator found these issues. The generator has attempted fixes.\n"
+                "Your job: (1) verify the fixes actually work, (2) check for any remaining "
+                "issues from the list below, (3) ONLY report NEW issues if they are genuine "
+                "P0/P1 severity — do not invent edge cases just to find something.\n\n"
+                f"{eval_failures}\n\n"
+            )
+        eval_prompt += (
+            "Evaluate the implementation against this contract. "
+            f"Write your report to {EVAL_REPORT}"
+        )
+
         result = call_claude(
-            prompt=(
-                f"## Sprint Contract\n{contract}\n\n"
-                "Evaluate the implementation against this contract. "
-                f"Write your report to {EVAL_REPORT}"
-            ),
+            prompt=eval_prompt,
             session_id=eval_session,
             system_prompt=eval_system,
             workspace=workspace,
