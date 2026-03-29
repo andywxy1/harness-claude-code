@@ -230,10 +230,16 @@ def _handle_start_project(msg: dict):
     if not workspace:
         workspace = str(Path.cwd() / "workspace")
 
+    mode = msg.get("mode", "sprint")
+
     def _run_orchestrator():
-        from harness.orchestrator import run_project
         try:
-            run_project(prompt, workspace, web=False)  # web=False since server is already running
+            if mode == "onepass":
+                from harness.orchestrator import run_project_onepass
+                run_project_onepass(prompt, workspace, web=False)
+            else:
+                from harness.orchestrator import run_project
+                run_project(prompt, workspace, web=False)
         except Exception as e:
             bus.emit("error", message=f"Orchestrator crashed: {e}")
 

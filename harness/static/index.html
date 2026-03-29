@@ -844,6 +844,20 @@ body {
   transition: border-color 0.15s;
 }
 .command-workspace:focus { border-color: var(--border-active); }
+.command-mode {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 8px 8px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.command-mode:focus { border-color: var(--border-active); outline: none; }
+.command-mode option { background: var(--bg-1); color: var(--text-0); }
 .command-workspace::placeholder { color: var(--text-2); }
 .command-btn {
   background: var(--accent-dim);
@@ -1174,6 +1188,10 @@ body {
              placeholder="./workspace">
       <button class="browse-btn" onclick="browseFolder()" title="Browse...">&#x1F4C2;</button>
     </div>
+    <select class="command-mode" id="cmdMode" title="Execution mode">
+      <option value="sprint">Sprint Mode</option>
+      <option value="onepass">One-Pass Mode</option>
+    </select>
     <button class="command-btn" id="cmdStart" onclick="sendStart()">Launch</button>
     <button class="command-btn resume" id="cmdResume" onclick="sendResume()" style="display:none">Resume</button>
   </div>
@@ -1950,10 +1968,13 @@ function sendStart() {
   if (!prompt) { $('#cmdPrompt').focus(); return; }
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+  const mode = $('#cmdMode').value;
+
   ws.send(JSON.stringify({
     command: 'start_project',
     prompt: prompt,
     workspace: workspace,
+    mode: mode,
   }));
 
   projectRunning = true;

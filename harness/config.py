@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
         "planner": 900,
         "negotiation": 600,
         "implementation": 1800,
+        "implementation_onepass": 18000,  # 5 hours for one-pass mode
         "evaluation": 900,
         "review": 900,
     },

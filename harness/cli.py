@@ -22,6 +22,12 @@ def main():
         help="Path to the project workspace directory (default: ./workspace)",
     )
     parser.add_argument(
+        "--mode",
+        choices=["sprint", "onepass"],
+        default="sprint",
+        help="Execution mode: 'sprint' (default) or 'onepass'",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="Resume a crashed/stopped project from the workspace state",
@@ -46,25 +52,25 @@ def main():
 
     try:
         if args.resume:
-            # Resume mode
             from harness.orchestrator import resume_project
             resume_project(workspace, web=not args.no_web, port=args.port)
         elif args.prompt is None:
-            # No prompt — start web UI in standalone mode
             if args.no_web:
                 parser.error("Cannot use --no-web without a prompt or --resume.")
             from harness.web import start_web_server
             start_web_server(port=args.port, block=True)
+        elif args.mode == "onepass":
+            from harness.orchestrator import run_project_onepass
+            run_project_onepass(args.prompt, workspace,
+                                web=not args.no_web, port=args.port)
         elif args.no_web:
-            # Prompt + no web — console only
             from harness.orchestrator import run_project
             run_project(args.prompt, workspace, web=False)
         else:
-            # Prompt + web — both
             from harness.orchestrator import run_project
             run_project(args.prompt, workspace, web=True, port=args.port)
     except KeyboardInterrupt:
-        print("\n\n[Harness] Interrupted. Progress has been saved — use --resume to continue.")
+        print("\n\n[Harness] Interrupted. Progress saved — use --resume to continue.")
         sys.exit(1)
 
 
