@@ -29,48 +29,17 @@ Two agents with opposing objectives. A **Generator** that builds with creativity
 
 ## How It Works
 
-```
-          ┌─────────────┐
-          │   PLANNER    │  Runs once. Splits project into sprints.
-          │  High-level  │  Sets vision and ambition. No details.
-          └──────┬───────┘
-                 │
-     ┌───────────▼───────────┐
-     │  CONTRACT NEGOTIATION  │  Generator proposes features + tests.
-     │                        │  Evaluator critiques, proposes new features.
-     │  Generator ◄──► Eval   │  No max rounds — they must AGREE.
-     │                        │  Tests defined BEFORE any code.
-     └───────────┬────────────┘
-                 │
-     ┌───────────▼───────────┐
-     │   IMPLEMENTATION       │  Generator builds everything.
-     │                        │  Reads skill files for design quality.
-     │   Self-tests before    │  Creates .done signal when tests pass.
-     │   handing off          │  Persistent session — remembers what it tried.
-     └───────────┬────────────┘
-                 │
-     ┌───────────▼───────────┐
-     │  ADVERSARIAL EVAL      │  Fresh session — no bias from prior rounds.
-     │                        │  Writes its OWN tests (edge cases, security).
-     │  Tries to BREAK it     │  Uses the product as a real user.
-     │  as a hostile user     │  If FAIL → generator fixes → re-eval.
-     └───────────┬────────────┘
-                 │
-     ┌───────────▼───────────┐
-     │   FINAL REVIEW         │  Senior engineer reviews full codebase.
-     │   Ship or Fix          │  Integration tests, architecture coherence.
-     └───────────────────────┘
-```
+<div align="center">
+<img src="assets/flow-diagram.svg" alt="Harness Claude Code Flow" width="800">
+</div>
 
 ---
 
 ## Two Modes
 
-### Sprint Mode (default)
-Planner splits the project into themed sprints. Each sprint gets its own negotiation → implementation → evaluation cycle. Deferred items carry forward. Best for **complex, multi-feature projects**.
-
-### One-Pass Mode
-Planner splits for structure, but ONE contract covers everything. Generator builds it all at once. Evaluator tests the complete product adversarially. Best for **smaller projects or MVPs**.
+<div align="center">
+<img src="assets/modes-comparison.svg" alt="Sprint Mode vs One-Pass Mode" width="800">
+</div>
 
 ---
 
@@ -145,13 +114,9 @@ A real-time mission control interface that streams everything the agents do.
 
 Most AI testing is a rubber stamp. The agent runs its own tests, they pass, it says "done." Our evaluator is designed to be **adversarial**:
 
-| Traditional AI Testing | Our Evaluator |
-|----------------------|---------------|
-| Re-runs generator's tests | Writes its **own** test file with edge cases |
-| Checks if tests pass | Tries to **break** the product as a hostile user |
-| "Tests pass = done" | "Tests pass = minimum bar, now let me attack it" |
-| Same perspective as builder | **Fresh session** — no knowledge of how it was built |
-| Code review | Product review — uses it, clicks through it, tries to confuse it |
+<div align="center">
+<img src="assets/evaluator-comparison.svg" alt="Traditional vs Adversarial Evaluation" width="800">
+</div>
 
 The evaluator is told: *"If all your findings are things the generator already tested, you have failed at your job."*
 
@@ -306,7 +271,6 @@ Options:
 
 - [Anthropic: Harness Design for Long-Running Apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) — the Generator-Evaluator pattern
 - [TradingAgents](https://github.com/TauricResearch/TradingAgents) — adversarial debate architecture with LangGraph
-- [Claude Code Harness](https://github.com/Chachamaru127/claude-code-harness) — disciplined development workflow
 
 ---
 

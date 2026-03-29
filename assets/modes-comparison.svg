@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="280" viewBox="0 0 800 280">
+  <defs>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="280" rx="12" fill="#0d1117"/>
+
+  <!-- Title -->
+  <text x="400" y="36" text-anchor="middle" fill="#e6edf3" font-size="20" font-weight="700">Two Modes</text>
+
+  <!-- Left card: Sprint Mode -->
+  <rect x="24" y="56" width="368" height="204" rx="10" fill="#161b22" stroke="#60a5fa" stroke-width="1.5"/>
+
+  <!-- Sprint icon: stacked layers -->
+  <g transform="translate(44, 76)">
+    <path d="M0 12 L14 4 L28 12 L14 20 Z" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+    <path d="M0 18 L14 26 L28 18" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+    <path d="M0 24 L14 32 L28 24" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+  </g>
+
+  <text x="82" y="96" fill="#60a5fa" font-size="16" font-weight="700">Sprint Mode</text>
+  <text x="82" y="113" fill="#8b949e" font-size="11" font-weight="500">DEFAULT</text>
+
+  <circle cx="44" cy="142" r="3" fill="#60a5fa"/>
+  <text x="56" y="146" fill="#c9d1d9" font-size="12">Multiple sprints, each with its own contract</text>
+
+  <circle cx="44" cy="166" r="3" fill="#60a5fa"/>
+  <text x="56" y="170" fill="#c9d1d9" font-size="12">Deferred items carry forward</text>
+
+  <circle cx="44" cy="190" r="3" fill="#60a5fa"/>
+  <text x="56" y="194" fill="#c9d1d9" font-size="12">Best for complex, multi-feature projects</text>
+
+  <circle cx="44" cy="214" r="3" fill="#60a5fa"/>
+  <text x="56" y="218" fill="#c9d1d9" font-size="12">Incremental delivery</text>
+
+  <!-- Right card: One-Pass Mode -->
+  <rect x="408" y="56" width="368" height="204" rx="10" fill="#161b22" stroke="#4ade80" stroke-width="1.5"/>
+
+  <!-- Rocket / single arrow icon -->
+  <g transform="translate(428, 76)">
+    <path d="M14 2 L14 30" stroke="#4ade80" stroke-width="2" stroke-linecap="round"/>
+    <path d="M6 14 L14 4 L22 14" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M8 28 L14 22 L20 28" fill="none" stroke="#4ade80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="466" y="96" fill="#4ade80" font-size="16" font-weight="700">One-Pass Mode</text>
+
+  <circle cx="428" cy="142" r="3" fill="#4ade80"/>
+  <text x="440" y="146" fill="#c9d1d9" font-size="12">One contract covers everything</text>
+
+  <circle cx="428" cy="166" r="3" fill="#4ade80"/>
+  <text x="440" y="170" fill="#c9d1d9" font-size="12">Generator builds it all at once</text>
+
+  <circle cx="428" cy="190" r="3" fill="#4ade80"/>
+  <text x="440" y="194" fill="#c9d1d9" font-size="12">Best for MVPs and smaller projects</text>
+
+  <circle cx="428" cy="214" r="3" fill="#4ade80"/>
+  <text x="440" y="218" fill="#c9d1d9" font-size="12">5-hour default timeout</text>
+</svg>
