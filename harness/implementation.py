@@ -8,6 +8,7 @@ same failures repeat 3 times, we rollback to renegotiation.
 from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
+from harness.events import bus
 from harness.prompts.implementation import IMPL_GEN_SYSTEM, IMPL_EVAL_SYSTEM
 from harness.utils import git_commit, parse_eval_report, extract_failure_keys, ensure_orchestrator_dir
 from harness.negotiation import negotiate_contract
@@ -25,20 +26,16 @@ def renegotiate_contract(
     sprint_num: int,
     workspace: str,
 ) -> str:
-    """Wrap negotiate_contract with context about what failed.
-
-    Prepends failure context to planner_direction so the negotiation
-    agents understand what proved problematic during implementation.
-    """
+    """Wrap negotiate_contract with context about what failed."""
     failures_text = "\n".join(f"  - {f}" for f in repeated_failures)
 
     augmented_direction = (
         "RENEGOTIATION: The following features proved problematic during implementation:\n"
-        f"{failures_text}\n"
-        f"Original contract: {original_contract}\n"
-        f"Evaluator report: {eval_report}\n"
+        f"{failures_text}\n\n"
+        f"Original contract:\n{original_contract}\n\n"
+        f"Evaluator report:\n{eval_report}\n\n"
         "Revise the contract to address these implementation realities.\n\n"
-        f"{planner_direction}"
+        f"Original planner direction:\n{planner_direction}"
     )
 
     return negotiate_contract(
@@ -56,18 +53,7 @@ def implement_and_evaluate(
     planner_direction: str,
     workspace: str,
 ) -> str:
-    """Run implementation/evaluation cycles until the sprint passes.
-
-    Args:
-        sprint_num: Current sprint number.
-        contract: The agreed-upon sprint contract.
-        project_vision: The overall product vision.
-        planner_direction: High-level sprint direction from the planner.
-        workspace: Path to the project workspace.
-
-    Returns:
-        The final contract (may differ from input if renegotiation occurred).
-    """
+    """Run implementation/evaluation cycles until the sprint passes."""
     ensure_orchestrator_dir(workspace)
 
     DONE_SIGNAL_PATH = Path(workspace) / DONE_SIGNAL
@@ -82,13 +68,15 @@ def implement_and_evaluate(
     failure_tracker: dict[str, int] = {}
 
     while True:
-        # --- Generator turn ---
-        print(f"[Implementation] Sprint {sprint_num}, Cycle {cycle} — Generator working...")
+        # ── Generator turn (persistent session) ──
+        bus.emit("impl_cycle", sprint=sprint_num, cycle=cycle, stage="generator")
+        bus.emit("agent_start", agent="generator")
 
         if cycle == 1:
             gen_prompt = (
                 f"## Sprint Contract\n{contract}\n\n"
-                "Write tests first, then implement. Follow the contract."
+                "Write tests first, then implement. Follow the contract. "
+                "Run all tests yourself before creating the .done signal."
             )
             gen_response = call_claude(
                 prompt=gen_prompt,
@@ -101,7 +89,8 @@ def implement_and_evaluate(
             gen_prompt = (
                 f"## Sprint Contract\n{contract}\n\n"
                 f"## Evaluator Failure Report\n{eval_failures}\n\n"
-                "Fix the issues above. Run the tests again."
+                "Fix the issues above. Review your code. Run all tests again. "
+                "Only create the .done signal when all tests pass."
             )
             gen_response = call_claude(
                 prompt=gen_prompt,
@@ -111,12 +100,13 @@ def implement_and_evaluate(
                 is_first_turn=False,
             )
 
-        print(f"[Implementation] Sprint {sprint_num}, Cycle {cycle} — Generator finished.")
+        bus.emit("agent_output", agent="generator", text=gen_response)
+        bus.emit("agent_done", agent="generator")
         git_commit(workspace, f"Sprint {sprint_num} cycle {cycle} — generator")
 
-        # --- Check done signal ---
+        # ── Check done signal ──
         if not DONE_SIGNAL_PATH.exists():
-            print(f"[Implementation] Warning: .done signal not found. Generator may not have run tests.")
+            bus.emit("done_signal_missing", sprint=sprint_num, cycle=cycle)
             eval_failures = (
                 "The .done signal file was not created. You MUST run all contract tests "
                 "and only create the .done signal when they all pass. Run the tests now."
@@ -124,53 +114,54 @@ def implement_and_evaluate(
             cycle += 1
             continue
 
-        # --- Evaluator turn ---
-        print(f"[Evaluation] Sprint {sprint_num}, Cycle {cycle} — Evaluator reviewing...")
-
-        # Clean up done signal and old report before evaluation
+        # ── Evaluator turn (fresh session) ──
         DONE_SIGNAL_PATH.unlink(missing_ok=True)
         EVAL_REPORT_PATH.unlink(missing_ok=True)
 
-        eval_session = fresh_session_id()
-        eval_prompt = f"## Sprint Contract\n{contract}\n\nEvaluate the implementation against this contract."
+        bus.emit("impl_cycle", sprint=sprint_num, cycle=cycle, stage="evaluator")
+        bus.emit("agent_start", agent="evaluator")
 
+        eval_session = fresh_session_id()
         eval_response = call_claude(
-            prompt=eval_prompt,
+            prompt=(
+                f"## Sprint Contract\n{contract}\n\n"
+                "Evaluate the implementation against this contract. "
+                f"Write your report to {EVAL_REPORT}"
+            ),
             session_id=eval_session,
             system_prompt=eval_system,
             workspace=workspace,
             is_first_turn=True,
         )
 
-        print(f"[Evaluation] Sprint {sprint_num}, Cycle {cycle} — Evaluator finished.")
+        bus.emit("agent_output", agent="evaluator", text=eval_response)
+        bus.emit("agent_done", agent="evaluator")
 
-        # --- Read eval report ---
+        # Read eval report
         if EVAL_REPORT_PATH.exists():
             report = EVAL_REPORT_PATH.read_text(encoding="utf-8")
         else:
             report = eval_response
 
-        # --- Parse result ---
         status, reason = parse_eval_report(report)
+        bus.emit("eval_result", sprint=sprint_num, cycle=cycle,
+                 status=status, reason=reason, report=report)
 
         if status == "PASS":
             git_commit(workspace, f"Sprint {sprint_num} complete")
-            print(f"[Evaluation] Sprint {sprint_num} PASSED — {reason}")
             return contract
 
-        # --- FAIL path ---
-        print(f"[Evaluation] Sprint {sprint_num}, Cycle {cycle} FAILED — {reason}")
-
-        # Track repeated failures
+        # ── Track repeated failures ──
         keys = extract_failure_keys(report)
         for key in keys:
             failure_tracker[key] = failure_tracker.get(key, 0) + 1
 
-        # Check for repeated failures (any key seen 3+ times)
         repeated = [k for k, v in failure_tracker.items() if v >= 3]
 
         if repeated:
-            print(f"[Implementation] Repeated failures detected ({len(repeated)}). Rolling back to renegotiation...")
+            bus.emit("rollback", sprint=sprint_num,
+                     reason=f"Same failures repeated 3x: {repeated[:3]}")
+
             contract = renegotiate_contract(
                 original_contract=contract,
                 eval_report=report,

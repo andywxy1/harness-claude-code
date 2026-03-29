@@ -1,6 +1,7 @@
 """Phase 1: Contract Negotiation between Generator and Evaluator."""
 
 from harness.claude_session import call_claude, fresh_session_id
+from harness.events import bus
 from harness.prompts.negotiation import NEG_GEN_SYSTEM, NEG_EVAL_SYSTEM
 from harness.utils import parse_agreed, ensure_orchestrator_dir
 
@@ -11,26 +12,12 @@ def negotiate_contract(
     sprint_num: int,
     workspace: str,
 ) -> str:
-    """Run generator/evaluator negotiation until both agree on a contract.
-
-    The generator improvises a detailed contract from the planner's high-level
-    direction. The evaluator critiques for rigor and testability, and can also
-    propose new features as a user advocate. They iterate until consensus.
-
-    Args:
-        planner_direction: High-level sprint direction from the planner (2-4 sentences).
-        project_vision: The overall product vision.
-        sprint_num: Current sprint number.
-        workspace: Path to the project workspace.
-
-    Returns:
-        The final agreed-upon contract text.
-    """
+    """Run generator/evaluator negotiation until both agree on a contract."""
     gen_session = fresh_session_id()
     eval_session = fresh_session_id()
 
-    # --- Round 1: Generator proposes initial contract ---
-    print(f"[Negotiation] Sprint {sprint_num} — Generator proposing initial contract...")
+    # Generator proposes initial contract
+    bus.emit("agent_start", agent="generator")
 
     gen_prompt = (
         f"## Project Vision\n{project_vision}\n\n"
@@ -47,13 +34,14 @@ def negotiate_contract(
         is_first_turn=True,
     )
 
-    print(f"[Negotiation] Generator proposed initial contract.")
+    bus.emit("agent_output", agent="generator", text=contract)
+    bus.emit("agent_done", agent="generator")
 
     round_num = 1
 
     while True:
-        # --- Evaluator critiques ---
-        print(f"[Negotiation] Round {round_num} — Evaluator reviewing...")
+        # Evaluator critiques
+        bus.emit("agent_start", agent="evaluator")
 
         eval_prompt = (
             f"Here is the generator's contract proposal:\n\n{contract}\n\n"
@@ -77,11 +65,14 @@ def negotiate_contract(
         )
 
         eval_agreed = parse_agreed(eval_response)
+        bus.emit("agent_output", agent="evaluator", text=eval_response)
+        bus.emit("agent_done", agent="evaluator")
+        bus.emit("negotiation_round", round=round_num,
+                 speaker="evaluator", agreed=eval_agreed)
 
         if eval_agreed:
-            # --- Confirm generator also agrees ---
-            print(f"[Negotiation] Round {round_num} — Evaluator AGREED. Confirming with generator...")
-
+            # Confirm generator also agrees
+            bus.emit("agent_start", agent="generator")
             confirm_response = call_claude(
                 prompt=(
                     "The evaluator has agreed to the contract as-is. "
@@ -94,31 +85,29 @@ def negotiate_contract(
                 workspace=workspace,
                 is_first_turn=False,
             )
+            bus.emit("agent_output", agent="generator", text=confirm_response)
+            bus.emit("agent_done", agent="generator")
 
             if parse_agreed(confirm_response):
-                print(f"[Negotiation] Both parties AGREED after {round_num} round(s).")
+                bus.emit("negotiation_round", round=round_num,
+                         speaker="generator", agreed=True)
                 break
             else:
-                # Generator wants more changes — treat their response as a revised contract
-                print(f"[Negotiation] Round {round_num} — Generator proposed further changes.")
+                bus.emit("negotiation_round", round=round_num,
+                         speaker="generator", agreed=False)
                 contract = confirm_response
                 round_num += 1
                 continue
-        else:
-            print(f"[Negotiation] Round {round_num} — Evaluator requesting changes.")
 
-        # --- Generator revises ---
-        print(f"[Negotiation] Round {round_num} — Generator revising...")
-
-        revise_prompt = (
-            f"The evaluator has critiqued your contract:\n\n{eval_response}\n\n"
-            "Revise your contract to address the evaluator's feedback. "
-            "If you accept all changes, produce the updated contract and say AGREED "
-            "if you believe it's ready. Otherwise say PROPOSING with your revised contract."
-        )
-
+        # Generator revises
+        bus.emit("agent_start", agent="generator")
         gen_response = call_claude(
-            prompt=revise_prompt,
+            prompt=(
+                f"The evaluator has critiqued your contract:\n\n{eval_response}\n\n"
+                "Revise your contract to address the evaluator's feedback. "
+                "If you accept all changes, produce the updated contract and say AGREED "
+                "if you believe it's ready. Otherwise say PROPOSING with your revised contract."
+            ),
             session_id=gen_session,
             system_prompt=NEG_GEN_SYSTEM,
             workspace=workspace,
@@ -126,13 +115,16 @@ def negotiate_contract(
         )
 
         contract = gen_response
-        print(f"[Negotiation] Round {round_num} — Generator revised contract.")
+        bus.emit("agent_output", agent="generator", text=gen_response)
+        bus.emit("agent_done", agent="generator")
+        bus.emit("negotiation_round", round=round_num,
+                 speaker="generator", agreed=parse_agreed(gen_response))
         round_num += 1
 
-    # --- Write final contract ---
+    # Write final contract
     orch_dir = ensure_orchestrator_dir(workspace)
     contract_path = orch_dir / "contract.md"
     contract_path.write_text(contract, encoding="utf-8")
-    print(f"[Negotiation] Final contract written to {contract_path}")
+    bus.emit("contract_agreed", sprint=sprint_num, text=contract)
 
     return contract

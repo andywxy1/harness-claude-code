@@ -3,30 +3,20 @@
 from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
+from harness.events import bus
 from harness.prompts.review import FINAL_REVIEW_SYSTEM
 from harness.utils import ensure_orchestrator_dir
 
 
 def run_final_review(workspace: str) -> str:
-    """Run a comprehensive final review of the completed project.
-
-    A fresh Claude session reviews the full codebase holistically,
-    checking for integration issues, code quality, and end-to-end
-    product completeness.
-
-    Args:
-        workspace: Path to the project workspace.
-
-    Returns:
-        The review report text.
-    """
+    """Run a comprehensive final review of the completed project."""
     orch_dir = ensure_orchestrator_dir(workspace)
     report_path = orch_dir / "final-review.md"
 
     session_id = fresh_session_id()
     system_prompt = FINAL_REVIEW_SYSTEM.format(report_path=str(report_path))
 
-    print("[Final Review] Starting comprehensive codebase review...")
+    bus.emit("agent_start", agent="reviewer")
 
     response = call_claude(
         prompt=(
@@ -41,19 +31,18 @@ def run_final_review(workspace: str) -> str:
         system_prompt=system_prompt,
         workspace=workspace,
         is_first_turn=True,
-        timeout=900,  # longer timeout for full review
+        timeout=900,
     )
+
+    bus.emit("agent_output", agent="reviewer", text=response)
+    bus.emit("agent_done", agent="reviewer")
 
     if report_path.exists():
         report = report_path.read_text(encoding="utf-8")
     else:
         report = response
 
-    # Check verdict
-    if "SHIP" in report.upper() and "FIX" not in report.upper().split("SHIP")[0][-20:]:
-        print("[Final Review] Verdict: SHIP")
-    else:
-        print("[Final Review] Verdict: FIX — see report for details")
+    verdict = "SHIP" if "SHIP" in report.upper() else "FIX"
+    bus.emit("log", source="Review", message=f"Verdict: {verdict}")
 
-    print(f"[Final Review] Report written to {report_path}")
     return report

@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HARNESS CLAUDE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg-0: #0a0c10;
+  --bg-1: #0f1218;
+  --bg-2: #151a22;
+  --bg-3: #1c222d;
+  --border: #252d3a;
+  --border-active: #3a4556;
+  --text-0: #c8ced8;
+  --text-1: #8b95a5;
+  --text-2: #5a6474;
+  --accent: #4ade80;
+  --accent-dim: #22543d;
+  --warn: #f59e0b;
+  --warn-dim: #713f12;
+  --error: #ef4444;
+  --error-dim: #7f1d1d;
+  --info: #60a5fa;
+  --info-dim: #1e3a5f;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Space Grotesk', system-ui, sans-serif;
+}
+
+html { font-size: 13px; }
+body {
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--mono);
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 48px 36px 1fr 200px;
+  grid-template-columns: 260px 1fr;
+  grid-template-areas:
+    "header header"
+    "sprints sprints"
+    "sidebar main"
+    "log log";
+}
+
+/* ─── Header ─────────────────────────────── */
+.header {
+  grid-area: header;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+.header-title {
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-0);
+}
+.header-title span { color: var(--accent); }
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-1);
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+.status-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+.status-dot.error { background: var(--error); box-shadow: 0 0 6px var(--error); }
+.status-dot.complete { background: var(--accent); }
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ─── Sprint Bar ─────────────────────────── */
+.sprint-bar {
+  grid-area: sprints;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 4px;
+  overflow-x: auto;
+}
+.sprint-pip {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text-2);
+  transition: all 0.15s ease-out;
+  white-space: nowrap;
+}
+.sprint-pip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.sprint-pip.complete {
+  border-color: var(--border-active);
+  color: var(--text-1);
+}
+.sprint-pip.complete::before {
+  content: "✓";
+  font-size: 9px;
+}
+
+/* ─── Sidebar ────────────────────────────── */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 0;
+}
+.phase-group {
+  padding: 0 14px;
+  margin-bottom: 16px;
+}
+.phase-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.phase-item {
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  margin-bottom: 2px;
+}
+.phase-item:hover { background: var(--bg-2); }
+.phase-item.active {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+.phase-item.complete { color: var(--text-1); }
+.phase-item .marker {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-2);
+  flex-shrink: 0;
+}
+.phase-item.active .marker {
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent);
+}
+.phase-item.complete .marker { background: var(--text-1); }
+.phase-item.error .marker { background: var(--error); }
+
+.sub-items { margin-left: 18px; }
+.sub-item {
+  font-size: 10px;
+  color: var(--text-2);
+  padding: 3px 8px;
+  border-left: 1px solid var(--border);
+  margin-bottom: 1px;
+}
+.sub-item.active { color: var(--accent); border-color: var(--accent); }
+.sub-item.fail { color: var(--error); border-color: var(--error); }
+.sub-item.pass { color: var(--text-1); }
+
+/* ─── Main Panel ─────────────────────────── */
+.main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.main-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.main-tab {
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.main-tab:hover { color: var(--text-1); }
+.main-tab.active {
+  color: var(--text-0);
+  border-bottom-color: var(--accent);
+}
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.content-section { display: none; }
+.content-section.visible { display: block; }
+
+.output-block {
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.output-block .label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 8px;
+  display: block;
+}
+.output-block.gen { border-left: 2px solid var(--info); }
+.output-block.gen .label { color: var(--info); }
+.output-block.eval { border-left: 2px solid var(--warn); }
+.output-block.eval .label { color: var(--warn); }
+.output-block.contract { border-left: 2px solid var(--accent); }
+.output-block.contract .label { color: var(--accent); }
+.output-block.error { border-left: 2px solid var(--error); }
+.output-block.error .label { color: var(--error); }
+
+.empty-state {
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: center;
+  padding: 60px 20px;
+  line-height: 1.8;
+}
+.empty-state strong {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+/* ─── Log Panel ──────────────────────────── */
+.log-panel {
+  grid-area: log;
+  background: var(--bg-0);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+}
+.log-header-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.log-count {
+  font-size: 10px;
+  color: var(--text-2);
+}
+.log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.log-line {
+  padding: 1px 16px;
+  display: flex;
+  gap: 10px;
+}
+.log-line:hover { background: var(--bg-1); }
+.log-ts {
+  color: var(--text-2);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.log-type {
+  flex-shrink: 0;
+  min-width: 80px;
+  font-weight: 500;
+}
+.log-type.phase_change { color: var(--accent); }
+.log-type.sprint_start, .log-type.sprint_complete { color: var(--accent); }
+.log-type.agent_start, .log-type.agent_done { color: var(--info); }
+.log-type.agent_output { color: var(--text-1); }
+.log-type.negotiation_round { color: var(--warn); }
+.log-type.contract_agreed { color: var(--accent); }
+.log-type.impl_cycle { color: var(--info); }
+.log-type.eval_result { color: var(--warn); }
+.log-type.rollback, .log-type.error, .log-type.done_signal_missing { color: var(--error); }
+.log-type.project_complete { color: var(--accent); }
+.log-msg { color: var(--text-1); }
+
+/* ─── Scrollbar ──────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+
+/* ─── Connection Banner ──────────────────── */
+.conn-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--error);
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.conn-banner.disconnected { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="conn-banner" id="connBanner"></div>
+
+<header class="header">
+  <div class="header-title">HARNESS <span>CLAUDE</span></div>
+  <div class="header-status">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Connecting...</span>
+  </div>
+</header>
+
+<nav class="sprint-bar" id="sprintBar">
+  <div style="font-size:10px;color:var(--text-2);letter-spacing:0.06em">SPRINTS</div>
+</nav>
+
+<aside class="sidebar" id="sidebar"></aside>
+
+<main class="main">
+  <div class="main-tabs" id="mainTabs">
+    <div class="main-tab active" data-tab="output">Output</div>
+    <div class="main-tab" data-tab="contract">Contract</div>
+    <div class="main-tab" data-tab="eval">Eval Report</div>
+  </div>
+  <div class="main-content" id="mainContent">
+    <div class="content-section visible" id="sec-output">
+      <div class="empty-state">
+        <strong>Waiting for agents to start...</strong><br>
+        The orchestrator will stream output here as agents work.
+      </div>
+    </div>
+    <div class="content-section" id="sec-contract">
+      <div class="empty-state">No contract negotiated yet.</div>
+    </div>
+    <div class="content-section" id="sec-eval">
+      <div class="empty-state">No evaluation report yet.</div>
+    </div>
+  </div>
+</main>
+
+<footer class="log-panel">
+  <div class="log-header">
+    <span class="log-header-title">Event Log</span>
+    <span class="log-count" id="logCount">0 events</span>
+  </div>
+  <div class="log-body" id="logBody"></div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+// ─── State ──────────────────────────────────
+const S = {
+  connected: false,
+  state: {},
+  sprints: [],
+  phases: [],
+  outputs: [],       // {agent, text, ts}
+  contracts: [],     // {sprint, text}
+  evalReports: [],   // {sprint, cycle, text}
+  logEvents: [],
+  activeTab: 'output',
+  currentSprint: 0,
+};
+
+// ─── WebSocket ──────────────────────────────
+let ws;
+let reconnectTimer;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    S.connected = true;
+    $('#connBanner').classList.remove('disconnected');
+    updateStatus();
+  };
+
+  ws.onclose = () => {
+    S.connected = false;
+    $('#connBanner').classList.add('disconnected');
+    updateStatus();
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'state_snapshot') {
+      S.state = data.state;
+      // Replay history
+      for (const ev of data.history) handleEvent(ev);
+      renderAll();
+    } else {
+      handleEvent(data);
+    }
+  };
+}
+
+// ─── Event Handler ──────────────────────────
+function handleEvent(ev) {
+  S.logEvents.push(ev);
+  appendLog(ev);
+
+  switch (ev.type) {
+    case 'sprint_start':
+      S.currentSprint = ev.sprint;
+      S.state.sprint_current = ev.sprint;
+      S.state.sprint_total = ev.total || S.state.sprint_total;
+      S.state.sprint_name = ev.name;
+      if (!S.sprints.find(s => s.number === ev.sprint)) {
+        S.sprints.push({ number: ev.sprint, name: ev.name, status: 'active' });
+      }
+      renderSprints();
+      resetPhases();
+      break;
+
+    case 'phase_change':
+      S.state.phase = ev.phase;
+      updatePhase(ev.phase, 'active');
+      updateStatus();
+      break;
+
+    case 'agent_start':
+      S.state.agent = ev.agent;
+      updateStatus();
+      break;
+
+    case 'agent_done':
+      S.state.agent = null;
+      updateStatus();
+      break;
+
+    case 'agent_output':
+      S.outputs.push({ agent: ev.agent, text: ev.text, ts: ev.ts });
+      if (S.activeTab === 'output') renderOutputs();
+      break;
+
+    case 'negotiation_round':
+      S.state.negotiation_round = ev.round;
+      addSubItem('negotiation', `R${ev.round} ${ev.speaker}`, ev.agreed ? 'pass' : 'active');
+      break;
+
+    case 'contract_agreed':
+      S.contracts.push({ sprint: S.currentSprint, text: ev.text || '' });
+      updatePhase('negotiation', 'complete');
+      if (S.activeTab === 'contract') renderContracts();
+      break;
+
+    case 'impl_cycle':
+      S.state.impl_cycle = ev.cycle;
+      addSubItem('implementation', `C${ev.cycle} ${ev.stage}`, 'active');
+      break;
+
+    case 'eval_result':
+      const cls = ev.status === 'PASS' ? 'pass' : 'fail';
+      addSubItem('implementation', `C${S.state.impl_cycle} eval: ${ev.status}`, cls);
+      if (ev.report) {
+        S.evalReports.push({ sprint: S.currentSprint, cycle: S.state.impl_cycle, text: ev.report });
+        if (S.activeTab === 'eval') renderEvalReports();
+      }
+      break;
+
+    case 'rollback':
+      addSubItem('implementation', 'ROLLBACK → renegotiation', 'fail');
+      break;
+
+    case 'done_signal_missing':
+      addSubItem('implementation', 'no .done signal', 'fail');
+      break;
+
+    case 'sprint_complete': {
+      const sp = S.sprints.find(s => s.number === ev.sprint);
+      if (sp) sp.status = 'complete';
+      updatePhase('implementation', 'complete');
+      updatePhase('evaluation', 'complete');
+      renderSprints();
+      break;
+    }
+
+    case 'project_complete':
+      S.state.phase = 'complete';
+      S.state.status = 'complete';
+      updateStatus();
+      break;
+  }
+}
+
+// ─── Renderers ──────────────────────────────
+
+function renderAll() {
+  renderSprints();
+  renderSidebar();
+  renderOutputs();
+  renderContracts();
+  renderEvalReports();
+  updateStatus();
+}
+
+function renderSprints() {
+  const bar = $('#sprintBar');
+  // Keep the label
+  const label = bar.children[0];
+  bar.innerHTML = '';
+  bar.appendChild(label);
+
+  const total = S.state.sprint_total || S.sprints.length;
+  for (let i = 1; i <= Math.max(total, S.sprints.length); i++) {
+    const sp = S.sprints.find(s => s.number === i);
+    const pip = document.createElement('div');
+    pip.className = 'sprint-pip';
+    if (sp?.status === 'complete') pip.classList.add('complete');
+    if (i === S.currentSprint && sp?.status !== 'complete') pip.classList.add('active');
+    pip.textContent = sp ? `S${i} ${sp.name}` : `S${i}`;
+    bar.appendChild(pip);
+  }
+}
+
+function resetPhases() {
+  const phases = ['planning', 'negotiation', 'implementation', 'evaluation', 'review'];
+  S.phases = phases.map(p => ({ id: p, status: 'pending', subItems: [] }));
+  renderSidebar();
+}
+
+function updatePhase(phaseId, status) {
+  const p = S.phases.find(x => x.id === phaseId);
+  if (p) p.status = status;
+  renderSidebar();
+}
+
+function addSubItem(phaseId, label, cls) {
+  const p = S.phases.find(x => x.id === phaseId);
+  if (p) {
+    // Deactivate previous sub-items
+    p.subItems.forEach(s => { if (s.cls === 'active') s.cls = 'pass'; });
+    p.subItems.push({ label, cls });
+  }
+  renderSidebar();
+}
+
+function renderSidebar() {
+  const sb = $('#sidebar');
+  if (!S.phases.length) {
+    sb.innerHTML = '<div class="phase-group"><div class="phase-label">Phases</div><div style="color:var(--text-2);font-size:11px;padding:6px 10px">Waiting...</div></div>';
+    return;
+  }
+  let html = '<div class="phase-group"><div class="phase-label">Pipeline</div>';
+  for (const p of S.phases) {
+    const cls = p.status === 'active' ? 'active' : p.status === 'complete' ? 'complete' : '';
+    html += `<div class="phase-item ${cls}"><div class="marker"></div>${p.id}</div>`;
+    if (p.subItems.length) {
+      html += '<div class="sub-items">';
+      for (const si of p.subItems) {
+        html += `<div class="sub-item ${si.cls}">${si.label}</div>`;
+      }
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+  sb.innerHTML = html;
+}
+
+function renderOutputs() {
+  const sec = $('#sec-output');
+  if (!S.outputs.length) {
+    sec.innerHTML = '<div class="empty-state"><strong>Waiting for agents to start...</strong><br>The orchestrator will stream output here as agents work.</div>';
+    return;
+  }
+  let html = '';
+  // Show last 20 outputs
+  const recent = S.outputs.slice(-20);
+  for (const o of recent) {
+    const cls = o.agent === 'generator' ? 'gen' : o.agent === 'evaluator' ? 'eval' : o.agent === 'planner' ? 'contract' : '';
+    const ts = o.ts ? o.ts.substring(11, 19) : '';
+    html += `<div class="output-block ${cls}"><span class="label">${o.agent} ${ts}</span>${escHtml(o.text)}</div>`;
+  }
+  sec.innerHTML = html;
+  sec.scrollTop = sec.scrollHeight;
+}
+
+function renderContracts() {
+  const sec = $('#sec-contract');
+  if (!S.contracts.length) {
+    sec.innerHTML = '<div class="empty-state">No contract negotiated yet.</div>';
+    return;
+  }
+  let html = '';
+  for (const c of S.contracts) {
+    html += `<div class="output-block contract"><span class="label">Sprint ${c.sprint} Contract</span>${escHtml(c.text)}</div>`;
+  }
+  sec.innerHTML = html;
+}
+
+function renderEvalReports() {
+  const sec = $('#sec-eval');
+  if (!S.evalReports.length) {
+    sec.innerHTML = '<div class="empty-state">No evaluation report yet.</div>';
+    return;
+  }
+  let html = '';
+  for (const r of S.evalReports) {
+    html += `<div class="output-block eval"><span class="label">Sprint ${r.sprint} Cycle ${r.cycle}</span>${escHtml(r.text)}</div>`;
+  }
+  sec.innerHTML = html;
+}
+
+function updateStatus() {
+  const dot = $('#statusDot');
+  const text = $('#statusText');
+  dot.className = 'status-dot';
+
+  if (!S.connected) {
+    text.textContent = 'Disconnected';
+    return;
+  }
+
+  const phase = S.state.phase || 'idle';
+  const agent = S.state.agent;
+
+  if (phase === 'complete') {
+    dot.classList.add('complete');
+    text.textContent = 'Project complete';
+  } else if (agent) {
+    dot.classList.add('active');
+    text.textContent = `${capitalize(phase)} — ${agent} working`;
+  } else if (phase !== 'idle') {
+    dot.classList.add('active');
+    text.textContent = capitalize(phase);
+  } else {
+    text.textContent = 'Connected — idle';
+  }
+}
+
+// ─── Log ────────────────────────────────────
+function appendLog(ev) {
+  const body = $('#logBody');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+
+  const ts = ev.ts ? ev.ts.substring(11, 19) : '--:--:--';
+  const msg = logMessage(ev);
+
+  line.innerHTML = `<span class="log-ts">${ts}</span><span class="log-type ${ev.type}">${ev.type}</span><span class="log-msg">${escHtml(msg)}</span>`;
+  body.appendChild(line);
+
+  // Auto-scroll
+  body.scrollTop = body.scrollHeight;
+  $('#logCount').textContent = `${S.logEvents.length} events`;
+}
+
+function logMessage(ev) {
+  switch (ev.type) {
+    case 'log': return `[${ev.source || ''}] ${ev.message || ''}`;
+    case 'phase_change': return ev.phase;
+    case 'sprint_start': return `Sprint ${ev.sprint}: ${ev.name}`;
+    case 'sprint_complete': return `Sprint ${ev.sprint} done`;
+    case 'agent_start': return ev.agent;
+    case 'agent_done': return ev.agent;
+    case 'agent_output': return `${ev.agent}: ${(ev.text||'').substring(0, 100)}`;
+    case 'negotiation_round': return `R${ev.round} ${ev.speaker} ${ev.agreed ? 'AGREED' : ''}`;
+    case 'contract_agreed': return 'Contract finalized';
+    case 'impl_cycle': return `C${ev.cycle} ${ev.stage}`;
+    case 'eval_result': return `${ev.status} — ${ev.reason || ''}`;
+    case 'rollback': return ev.reason || 'Renegotiating';
+    case 'done_signal_missing': return 'Generator did not create .done';
+    case 'project_complete': return 'Done';
+    case 'error': return ev.message || '';
+    default: return JSON.stringify(ev).substring(0, 120);
+  }
+}
+
+// ─── Tabs ───────────────────────────────────
+$('#mainTabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.main-tab');
+  if (!tab) return;
+  $$('.main-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  S.activeTab = tab.dataset.tab;
+  $$('.content-section').forEach(s => s.classList.remove('visible'));
+  $(`#sec-${S.activeTab}`).classList.add('visible');
+});
+
+// ─── Utils ──────────────────────────────────
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+// ─── Init ───────────────────────────────────
+resetPhases();
+connect();
+</script>
+</body>
+</html>
