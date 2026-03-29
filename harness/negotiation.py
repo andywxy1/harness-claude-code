@@ -71,13 +71,15 @@ def negotiate_contract(
                  speaker="evaluator", agreed=eval_agreed)
 
         if eval_agreed:
-            # Confirm generator also agrees
+            # Confirm generator also agrees — ask for the FULL final contract
             bus.emit("agent_start", agent="generator")
             confirm_response = call_claude(
                 prompt=(
-                    "The evaluator has agreed to the contract as-is. "
+                    "The evaluator has agreed to the contract. "
                     "Do you also agree this is the final contract? "
-                    "If yes, say AGREED on its own line. "
+                    "If yes, output the COMPLETE FINAL CONTRACT in full "
+                    "(every feature, every acceptance criterion, every test — "
+                    "the entire document, not just changes), followed by AGREED on its own line. "
                     "If you want to make final changes, say PROPOSING and state them."
                 ),
                 session_id=gen_session,
@@ -89,6 +91,8 @@ def negotiate_contract(
             bus.emit("agent_done", agent="generator")
 
             if parse_agreed(confirm_response):
+                # Use the confirmation output as the contract since it has the full text
+                contract = confirm_response
                 bus.emit("negotiation_round", round=round_num,
                          speaker="generator", agreed=True)
                 break

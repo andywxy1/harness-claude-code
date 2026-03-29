@@ -63,6 +63,10 @@ def implement_and_evaluate(
     gen_system = IMPL_GEN_SYSTEM.format(done_signal=str(DONE_SIGNAL))
     eval_system = IMPL_EVAL_SYSTEM.format(report_path=str(EVAL_REPORT))
 
+    # Write contract to disk so agents can also read it via file tools
+    contract_path = Path(workspace) / ".orchestrator" / "contract.md"
+    contract_path.write_text(contract, encoding="utf-8")
+
     cycle = 1
     eval_failures = ""
     failure_tracker: dict[str, int] = {}
@@ -74,9 +78,15 @@ def implement_and_evaluate(
 
         if cycle == 1:
             gen_prompt = (
-                f"## Sprint Contract\n{contract}\n\n"
-                "Write tests first, then implement. Follow the contract. "
-                "Run all tests yourself before creating the .done signal."
+                "## Sprint Contract\n"
+                "THE FOLLOWING IS YOUR COMPLETE CONTRACT. You have everything you need.\n"
+                "Do NOT ask for more information. START BUILDING NOW.\n\n"
+                f"{contract}\n\n"
+                "## Instructions\n"
+                "1. Write the test files based on the contract above\n"
+                "2. Implement all features until tests pass\n"
+                "3. Review your own work\n"
+                "4. Create the .done signal file when all tests pass"
             )
             gen_response = call_claude(
                 prompt=gen_prompt,
