@@ -38,6 +38,13 @@ YOUR PROCESS:
 9. Only create {done_signal} when ALL contract tests pass AND
    you have reviewed your own work AND you are confident in the quality
 
+TEST TIMEOUTS:
+- When writing E2E or integration tests, use tight timeouts: 5 seconds
+  for UI interactions, 10 seconds for network requests
+- If something takes more than 5 seconds to appear, the code is broken,
+  not slow — fix the code, don't increase the timeout
+- Set the global test timeout to 15 seconds max, not 30+
+
 YOU MUST NOT:
 - Skip any test from the contract
 - Modify test expectations to make them pass
