@@ -777,6 +777,15 @@ body {
   background: var(--accent);
   color: var(--bg-0);
 }
+.command-btn.resume {
+  background: var(--info-dim);
+  border-color: var(--info);
+  color: var(--info);
+}
+.command-btn.resume:hover {
+  background: var(--info);
+  color: var(--bg-0);
+}
 .command-btn.stop {
   background: var(--error-dim);
   border-color: var(--error);
@@ -973,9 +982,10 @@ body {
       <button class="browse-btn" onclick="browseFolder()" title="Browse...">&#x1F4C2;</button>
     </div>
     <button class="command-btn" id="cmdStart" onclick="sendStart()">Launch</button>
+    <button class="command-btn resume" id="cmdResume" onclick="sendResume()" style="display:none">Resume</button>
   </div>
   <div class="command-hint">
-    <span>Enter a project description and workspace path, then hit Launch or press Enter</span>
+    <span id="cmdHint">Enter a project description and workspace path, then hit Launch or press Enter</span>
     <button class="new-project-btn hidden" id="newProjectBtn" onclick="resetProject()">New Project</button>
   </div>
 </div>
@@ -1053,9 +1063,23 @@ function connect() {
     const data = JSON.parse(e.data);
     if (data.type === 'state_snapshot') {
       S.state = data.state;
-      // Replay history
       for (const ev of data.history) handleEvent(ev);
       renderAll();
+    } else if (data.type === 'resumable_check') {
+      const resumeBtn = $('#cmdResume');
+      const hint = $('#cmdHint');
+      if (data.resumable) {
+        resumeBtn.style.display = '';
+        const desc = data.project_description || '';
+        hint.textContent = `Resumable project found: "${desc.substring(0, 60)}..." — Sprint ${data.completed_sprints}/${data.total_sprints} complete`;
+      } else {
+        resumeBtn.style.display = 'none';
+        hint.textContent = 'Enter a project description and workspace path, then hit Launch or press Enter';
+      }
+    } else if (data.type === 'config_updated') {
+      // Settings saved confirmation
+    } else if (data.type === 'pong') {
+      // keepalive
     } else {
       handleEvent(data);
     }
@@ -1470,11 +1494,22 @@ async function browseFolder() {
     const data = await resp.json();
     if (data.path) {
       $('#cmdWorkspace').value = data.path;
+      checkResumable(data.path);
     }
   } catch (e) {
     console.error('Browse failed:', e);
   }
 }
+
+function checkResumable(workspace) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !workspace) return;
+  ws.send(JSON.stringify({ command: 'check_resumable', workspace }));
+}
+
+// Check on workspace input blur
+$('#cmdWorkspace').addEventListener('change', (e) => {
+  checkResumable(e.target.value.trim());
+});
 
 function sendStart() {
   const prompt = $('#cmdPrompt').value.trim();
@@ -1485,6 +1520,22 @@ function sendStart() {
   ws.send(JSON.stringify({
     command: 'start_project',
     prompt: prompt,
+    workspace: workspace,
+  }));
+
+  projectRunning = true;
+  S.projectCompleted = false;
+  updateNewProjectBtn();
+  updateLayout();
+}
+
+function sendResume() {
+  const workspace = $('#cmdWorkspace').value.trim();
+  if (!workspace) { $('#cmdWorkspace').focus(); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  ws.send(JSON.stringify({
+    command: 'resume_project',
     workspace: workspace,
   }));
 

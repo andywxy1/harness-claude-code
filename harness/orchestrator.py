@@ -1,8 +1,12 @@
 """Main orchestrator — runs the full project lifecycle.
 
-Planner (once) → [Negotiation → Implementation → Evaluation] per sprint → Final Review
+Planner (once) -> [Negotiation -> Implementation -> Evaluation] per sprint -> Final Review
+
+Saves state to .orchestrator/project-state.json at every phase transition
+so projects can be resumed after crashes.
 """
 
+import re
 from pathlib import Path
 
 from harness.events import bus
@@ -10,18 +14,13 @@ from harness.planner import run_planner
 from harness.negotiation import negotiate_contract
 from harness.implementation import implement_and_evaluate
 from harness.review import run_final_review
+from harness.state import save_state, load_state, has_state, make_initial_state
 from harness.utils import git_init, git_commit, ensure_orchestrator_dir
 
 
 def _extract_deferred_items(contract: str) -> list[str]:
-    """Extract 'Out of Scope' items from a sprint contract.
-
-    Looks for sections like '## Out of Scope' and extracts bullet points.
-    """
-    import re
+    """Extract 'Out of Scope' items from a sprint contract."""
     items = []
-
-    # Find "Out of Scope" section
     match = re.search(
         r"(?:out of scope|deferred|future sprint)[s]?\s*\n(.*?)(?=\n##|\Z)",
         contract,
@@ -31,33 +30,22 @@ def _extract_deferred_items(contract: str) -> list[str]:
         section = match.group(1)
         for line in section.split("\n"):
             line = line.strip()
-            # Match bullet points: "- item" or "* item"
             if line and (line.startswith("-") or line.startswith("*")):
                 item = line.lstrip("-* ").strip()
                 if item and len(item) > 5:
                     items.append(item)
-
     return items
 
 
 def run_project(project_description: str, workspace: str, web: bool = True, port: int = 8420):
-    """Execute the full Harness Claude pipeline.
-
-    Args:
-        project_description: Free-text description of what to build.
-        workspace: Path to the project directory.
-        web: Whether to start the web UI.
-        port: Port for the web UI.
-    """
+    """Execute the full Harness Claude pipeline (fresh start)."""
     workspace_path = Path(workspace).resolve()
     workspace_path.mkdir(parents=True, exist_ok=True)
     workspace = str(workspace_path)
 
-    # Initialize git if needed
     git_init(workspace)
     ensure_orchestrator_dir(workspace)
 
-    # Start web UI if requested
     if web:
         from harness.web import start_web_server
         start_web_server(port)
@@ -74,10 +62,8 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
         bus.emit("error", message="Planner produced no sprints. Aborting.")
         return
 
-    bus.emit("log", source="Orchestrator",
-             message=f"Vision: {vision[:200]}")
-    bus.emit("log", source="Orchestrator",
-             message=f"{len(sprints)} sprint(s) planned")
+    bus.emit("log", source="Orchestrator", message=f"Vision: {vision[:200]}")
+    bus.emit("log", source="Orchestrator", message=f"{len(sprints)} sprint(s) planned")
 
     # Save sprint plan
     orch_dir = ensure_orchestrator_dir(workspace)
@@ -86,12 +72,53 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
     for s in sprints:
         plan_lines.append(f"\n## Sprint {s['number']}: {s['name']}\n{s['description']}\n")
     plan_path.write_text("\n".join(plan_lines), encoding="utf-8")
-
     git_commit(workspace, "Add sprint plan")
 
-    # ── Execute each sprint ──
-    completed_contracts = []
-    deferred_items: list[str] = []  # out-of-scope items carried from previous sprints
+    # Save initial state
+    state = make_initial_state(project_description, vision, sprints)
+    save_state(workspace, state)
+
+    # Execute sprints
+    _execute_sprints(workspace, state)
+
+
+def resume_project(workspace: str, web: bool = True, port: int = 8420):
+    """Resume a project from saved state."""
+    workspace_path = Path(workspace).resolve()
+    workspace = str(workspace_path)
+
+    if not has_state(workspace):
+        bus.emit("error", message=f"No project state found in {workspace}")
+        return
+
+    state = load_state(workspace)
+    if state is None:
+        bus.emit("error", message="Failed to load project state.")
+        return
+
+    if web:
+        from harness.web import start_web_server
+        start_web_server(port)
+
+    bus.emit("log", source="Orchestrator",
+             message=f"Resuming project: {state['project_description'][:100]}")
+    bus.emit("log", source="Orchestrator",
+             message=f"Phase: {state['phase']}, Sprint: {state['current_sprint']}")
+
+    if state["phase"] == "complete":
+        bus.emit("log", source="Orchestrator", message="Project already complete.")
+        return
+
+    _execute_sprints(workspace, state)
+
+
+def _execute_sprints(workspace: str, state: dict):
+    """Run (or resume) the sprint execution loop."""
+    vision = state["vision"]
+    sprints = state["sprints"]
+    completed_sprints = set(state.get("completed_sprints", []))
+    contracts = state.get("contracts", {})
+    deferred_items = list(state.get("deferred_items", []))
     total_sprints = len(sprints)
 
     for sprint in sprints:
@@ -99,7 +126,13 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
         sprint_name = sprint["name"]
         sprint_direction = sprint["description"]
 
-        # Augment direction with deferred items from previous sprints
+        # Skip already completed sprints
+        if sprint_num in completed_sprints:
+            bus.emit("log", source="Orchestrator",
+                     message=f"Sprint {sprint_num} already complete, skipping")
+            continue
+
+        # Augment direction with deferred items
         if deferred_items:
             deferred_text = "\n".join(f"  - {item}" for item in deferred_items)
             sprint_direction += (
@@ -109,24 +142,49 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
 
         bus.emit("sprint_start", sprint=sprint_num, total=total_sprints, name=sprint_name)
 
-        # Phase 1: Negotiate contract
-        bus.emit("phase_change", phase="negotiation")
-        contract = negotiate_contract(
-            planner_direction=sprint_direction,
-            project_vision=vision,
-            sprint_num=sprint_num,
-            workspace=workspace,
-        )
+        # ── Phase 1: Negotiation ──
+        # Check if we already have a contract for this sprint (resuming mid-implementation)
+        contract = contracts.get(str(sprint_num))
 
-        # Extract out-of-scope items from this sprint's contract for future sprints
-        new_deferred = _extract_deferred_items(contract)
-        if new_deferred:
-            deferred_items.extend(new_deferred)
+        if contract is None:
+            # Need to negotiate
+            bus.emit("phase_change", phase="negotiation")
+
+            state["current_sprint"] = sprint_num
+            state["current_sprint_phase"] = "negotiation"
+            save_state(workspace, state)
+
+            contract = negotiate_contract(
+                planner_direction=sprint_direction,
+                project_vision=vision,
+                sprint_num=sprint_num,
+                workspace=workspace,
+            )
+
+            # Save contract to state
+            contracts[str(sprint_num)] = contract
+            state["contracts"] = contracts
+
+            # Extract deferred items
+            new_deferred = _extract_deferred_items(contract)
+            if new_deferred:
+                deferred_items.extend(new_deferred)
+                state["deferred_items"] = deferred_items
+                bus.emit("log", source="Orchestrator",
+                         message=f"Carried {len(new_deferred)} deferred item(s) to future sprints")
+
+            save_state(workspace, state)
+        else:
             bus.emit("log", source="Orchestrator",
-                     message=f"Carried {len(new_deferred)} deferred item(s) to future sprints")
+                     message=f"Sprint {sprint_num} contract loaded from state")
+            bus.emit("contract_agreed", sprint=sprint_num, text=contract)
 
-        # Phase 2: Implement and evaluate
+        # ── Phase 2: Implementation ──
         bus.emit("phase_change", phase="implementation")
+
+        state["current_sprint_phase"] = "implementation"
+        save_state(workspace, state)
+
         final_contract = implement_and_evaluate(
             sprint_num=sprint_num,
             contract=contract,
@@ -135,32 +193,40 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
             workspace=workspace,
         )
 
-        completed_contracts.append({
-            "sprint": sprint_num,
-            "name": sprint_name,
-            "contract": final_contract,
-        })
+        # Mark sprint complete
+        completed_sprints.add(sprint_num)
+        state["completed_sprints"] = sorted(completed_sprints)
+        contracts[str(sprint_num)] = final_contract
+        state["contracts"] = contracts
+        state["current_sprint_phase"] = None
+        save_state(workspace, state)
 
         bus.emit("sprint_complete", sprint=sprint_num, name=sprint_name)
 
     # ── Final Review ──
     bus.emit("phase_change", phase="review")
+    state["phase"] = "review"
+    save_state(workspace, state)
+
     review_report = run_final_review(workspace)
 
     # Save summary
+    orch_dir = ensure_orchestrator_dir(workspace)
     summary_path = orch_dir / "project-summary.md"
     summary_lines = [
         f"# Project Summary\n\n",
-        f"## Description\n{project_description}\n\n",
+        f"## Description\n{state['project_description']}\n\n",
         f"## Vision\n{vision}\n\n",
-        f"## Sprints Completed: {len(completed_contracts)}\n",
+        f"## Sprints Completed: {len(completed_sprints)}\n",
     ]
-    for c in completed_contracts:
-        summary_lines.append(f"\n### Sprint {c['sprint']}: {c['name']}\n")
-        summary_lines.append(f"Contract:\n{c['contract'][:500]}...\n")
+    for sn in sorted(completed_sprints):
+        c = contracts.get(str(sn), "")
+        summary_lines.append(f"\n### Sprint {sn}\n{c[:500]}...\n")
     summary_lines.append(f"\n## Final Review\n{review_report[:1000]}...\n")
     summary_path.write_text("".join(summary_lines), encoding="utf-8")
 
     git_commit(workspace, "Project complete — final review")
 
+    state["phase"] = "complete"
+    save_state(workspace, state)
     bus.emit("project_complete", summary_path=str(summary_path))
