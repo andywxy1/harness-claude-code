@@ -46,6 +46,28 @@ def run_project(project_description: str, workspace: str, web: bool = True, port
     git_init(workspace)
     ensure_orchestrator_dir(workspace)
 
+    # Validate workspace
+    try:
+        test_file = workspace_path / ".orchestrator" / ".write-test"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text("test")
+        test_file.unlink()
+    except OSError as e:
+        bus.emit("error", message=f"Workspace not writable: {e}")
+        return
+
+    # Check git is available
+    import shutil
+    if not shutil.which("git"):
+        bus.emit("log", source="Orchestrator", message="WARNING: git not found. State tracking via git commits disabled.")
+
+    # Check claude is available
+    if not shutil.which("claude"):
+        bus.emit("error", message="Claude Code CLI not found. Install it first: https://claude.ai/code")
+        return
+
+    bus.set_audit_log(Path(workspace) / ".orchestrator" / "events.jsonl")
+
     if web:
         from harness.web import start_web_server
         start_web_server(port)
@@ -95,6 +117,9 @@ def resume_project(workspace: str, web: bool = True, port: int = 8420):
     if state is None:
         bus.emit("error", message="Failed to load project state.")
         return
+
+    ensure_orchestrator_dir(workspace)
+    bus.set_audit_log(Path(workspace) / ".orchestrator" / "events.jsonl")
 
     if web:
         from harness.web import start_web_server
@@ -169,7 +194,27 @@ def _execute_sprints(workspace: str, state: dict):
             new_deferred = _extract_deferred_items(contract)
             if new_deferred:
                 deferred_items.extend(new_deferred)
-                state["deferred_items"] = deferred_items
+
+            # Remove deferred items that were addressed in this sprint's contract
+            addressed = []
+            for item in deferred_items:
+                # Check if key words from the deferred item appear in the contract
+                words = [w.lower() for w in item.split() if len(w) > 3]
+                if words and sum(1 for w in words if w in contract.lower()) >= len(words) * 0.5:
+                    addressed.append(item)
+            for item in addressed:
+                if item in deferred_items:
+                    deferred_items.remove(item)
+            if addressed:
+                bus.emit("log", source="Orchestrator",
+                         message=f"Removed {len(addressed)} addressed deferred item(s)")
+
+            # Cap at 20 most recent
+            if len(deferred_items) > 20:
+                deferred_items = deferred_items[-20:]
+
+            state["deferred_items"] = deferred_items
+            if new_deferred:
                 bus.emit("log", source="Orchestrator",
                          message=f"Carried {len(new_deferred)} deferred item(s) to future sprints")
 

@@ -224,7 +224,9 @@ async def _broadcast(event: dict):
     for ws in _clients:
         try:
             await ws.send_json(event)
-        except Exception:
+        except Exception as e:
+            if not isinstance(e, (ConnectionError, RuntimeError)):
+                print(f"  [WebSocket] Broadcast error: {type(e).__name__}: {e}")
             dead.add(ws)
     _clients.difference_update(dead)
 

@@ -7,24 +7,35 @@ from pathlib import Path
 
 def git_commit(workspace: str, message: str):
     """Stage all changes and commit."""
-    subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True)
-    subprocess.run(
+    result1 = subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True)
+    if result1.returncode != 0:
+        from harness.events import bus
+        bus.emit("log", source="Git", message=f"git add failed: {result1.stderr.decode()[:200]}")
+        return
+    result2 = subprocess.run(
         ["git", "commit", "-m", message, "--allow-empty"],
-        cwd=workspace,
-        capture_output=True,
+        cwd=workspace, capture_output=True,
     )
+    if result2.returncode != 0:
+        stderr = result2.stderr.decode()[:200] if result2.stderr else ""
+        if "nothing to commit" not in stderr:
+            from harness.events import bus
+            bus.emit("log", source="Git", message=f"git commit failed: {stderr}")
 
 
 def git_init(workspace: str):
     """Initialize a git repo if one doesn't exist."""
     git_dir = Path(workspace) / ".git"
     if not git_dir.exists():
-        subprocess.run(["git", "init"], cwd=workspace, capture_output=True)
+        result = subprocess.run(["git", "init"], cwd=workspace, capture_output=True)
+        if result.returncode != 0:
+            from harness.events import bus
+            bus.emit("log", source="Git", message=f"git init failed: {result.stderr.decode()[:200]}")
+            return
         subprocess.run(["git", "add", "-A"], cwd=workspace, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "Initial commit"],
-            cwd=workspace,
-            capture_output=True,
+            cwd=workspace, capture_output=True,
         )
 
 

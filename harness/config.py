@@ -20,6 +20,7 @@ DEFAULT_CONFIG = {
         "evaluation": 900,
         "review": 900,
     },
+    "max_negotiation_rounds": 50,
 }
 
 
@@ -50,6 +51,9 @@ class Config:
     def update_timeout(self, phase: str, timeout: int):
         if phase in self._data["timeouts"]:
             self._data["timeouts"][phase] = timeout
+
+    def get_max_negotiation_rounds(self) -> int:
+        return self._data.get("max_negotiation_rounds", 50)
 
     def to_dict(self) -> dict:
         return json.loads(json.dumps(self._data))

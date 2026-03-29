@@ -1,6 +1,8 @@
 """Persistent project state — tracks progress so we can resume after crashes."""
 
 import json
+import os
+import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -17,18 +19,28 @@ def save_state(workspace: str, state: dict):
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     path = _state_path(workspace)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+    tmp = path.with_suffix(".json.tmp")
+    bak = path.with_suffix(".json.bak")
+    # Write to temp file
+    tmp.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+    # Backup current state
+    if path.exists():
+        shutil.copy2(path, bak)
+    # Atomic rename
+    os.replace(tmp, path)
 
 
 def load_state(workspace: str) -> dict | None:
     """Load project state from disk. Returns None if no state exists."""
     path = _state_path(workspace)
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None
+    bak = path.with_suffix(".json.bak")
+    for p in [path, bak]:
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+    return None
 
 
 def has_state(workspace: str) -> bool:

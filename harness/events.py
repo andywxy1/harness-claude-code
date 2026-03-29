@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 class EventBus:
@@ -13,6 +14,7 @@ class EventBus:
         self._subscribers: list = []
         self._lock = threading.Lock()
         self._history: list[dict] = []
+        self._audit_log_path: Path | None = None
         self._state = {
             "phase": "idle",
             "sprint_current": 0,
@@ -40,6 +42,9 @@ class EventBus:
         with self._lock:
             self._subscribers.remove(callback)
 
+    def set_audit_log(self, path: Path):
+        self._audit_log_path = path
+
     def emit(self, event_type: str, **data):
         event = {
             "type": event_type,
@@ -66,6 +71,14 @@ class EventBus:
                     cb(event)
                 except Exception:
                     pass
+
+        # Append to audit log
+        if self._audit_log_path:
+            try:
+                with open(self._audit_log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(event, default=str) + "\n")
+            except OSError:
+                pass
 
     def _update_state(self, event):
         t = event["type"]

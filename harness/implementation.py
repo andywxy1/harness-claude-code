@@ -5,6 +5,8 @@ it tried. The evaluator is FRESH each cycle for unbiased assessment. If the
 same failures repeat 3 times, we rollback to renegotiation.
 """
 
+import hashlib
+import json
 from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
@@ -47,6 +49,15 @@ def renegotiate_contract(
     )
 
 
+def _save_impl_state(path, cycle, failure_tracker, eval_failures):
+    import json as _json
+    path.write_text(_json.dumps({
+        "cycle": cycle,
+        "failure_tracker": failure_tracker,
+        "eval_failures": eval_failures,
+    }, indent=2), encoding="utf-8")
+
+
 def implement_and_evaluate(
     sprint_num: int,
     contract: str,
@@ -72,9 +83,30 @@ def implement_and_evaluate(
     contract_path = Path(workspace) / ".orchestrator" / "contract.md"
     contract_path.write_text(contract, encoding="utf-8")
 
+    hash_path = Path(workspace) / ".orchestrator" / "contract.hash"
+    if hash_path.exists():
+        expected_hash = hash_path.read_text(encoding="utf-8").strip()
+        actual_hash = hashlib.sha256(contract.encode()).hexdigest()[:16]
+        if expected_hash != actual_hash:
+            bus.emit("log", source="Implementation",
+                     message=f"Contract hash mismatch! Expected {expected_hash}, got {actual_hash}. Re-reading from disk.")
+            contract = contract_path.read_text(encoding="utf-8")
+
     cycle = 1
     eval_failures = ""
     failure_tracker: dict[str, int] = {}
+
+    # Load persisted implementation state if resuming
+    impl_state_path = Path(workspace) / ".orchestrator" / "impl-state.json"
+    if impl_state_path.exists():
+        try:
+            impl_state = json.loads(impl_state_path.read_text(encoding="utf-8"))
+            failure_tracker = impl_state.get("failure_tracker", {})
+            cycle = impl_state.get("cycle", 1)
+            eval_failures = impl_state.get("eval_failures", "")
+            bus.emit("log", source="Implementation", message=f"Resumed from cycle {cycle}")
+        except (json.JSONDecodeError, OSError):
+            pass
 
     while True:
         # ── Generator turn (persistent session) ──
@@ -173,7 +205,11 @@ def implement_and_evaluate(
         bus.emit("test_results", sprint=sprint_num,
                  results=parse_test_results(report))
 
+        # Persist implementation state for resume
+        _save_impl_state(impl_state_path, cycle, failure_tracker, eval_failures)
+
         if status == "PASS":
+            impl_state_path.unlink(missing_ok=True)
             git_commit(workspace, f"Sprint {sprint_num} complete")
             return contract
 
@@ -187,6 +223,7 @@ def implement_and_evaluate(
         if repeated:
             bus.emit("rollback", sprint=sprint_num,
                      reason=f"Same failures repeated 3x: {repeated[:3]}")
+            impl_state_path.unlink(missing_ok=True)
 
             contract = renegotiate_contract(
                 original_contract=contract,
