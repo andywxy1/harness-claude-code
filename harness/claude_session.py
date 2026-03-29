@@ -165,19 +165,34 @@ def call_claude(
 
             if msg_type == "result":
                 # Final summary message with usage info.
+                # The "result" field can be a string (final text) or a dict.
                 result_data = msg.get("result", msg)
-                usage_raw = result_data.get("usage")
-                if usage_raw:
-                    usage = {
-                        "input_tokens": usage_raw.get("input_tokens"),
-                        "output_tokens": usage_raw.get("output_tokens"),
-                        "cost": result_data.get("cost_usd") or usage_raw.get("cost"),
-                    }
-                # Result may also carry final text if we missed deltas.
-                if not accumulated_text:
-                    for block in result_data.get("content", []):
-                        if block.get("type") == "text":
-                            accumulated_text += block.get("text", "")
+                if isinstance(result_data, str):
+                    # result is the final text output
+                    if not accumulated_text:
+                        accumulated_text = result_data
+                else:
+                    # result is a dict with usage info
+                    usage_raw = result_data.get("usage")
+                    if usage_raw:
+                        usage = {
+                            "input_tokens": usage_raw.get("input_tokens"),
+                            "output_tokens": usage_raw.get("output_tokens"),
+                            "cost": result_data.get("cost_usd") or usage_raw.get("cost"),
+                        }
+                    if not accumulated_text:
+                        for block in result_data.get("content", []):
+                            if block.get("type") == "text":
+                                accumulated_text += block.get("text", "")
+                # Also check top-level usage on the msg itself
+                if not usage:
+                    top_usage = msg.get("usage")
+                    if isinstance(top_usage, dict):
+                        usage = {
+                            "input_tokens": top_usage.get("input_tokens"),
+                            "output_tokens": top_usage.get("output_tokens"),
+                            "cost": msg.get("cost_usd") or msg.get("total_cost_usd"),
+                        }
 
             # Ignore "system", "hook", and any other message types.
 
