@@ -2,6 +2,10 @@ from .contract_criteria import CONTRACT_CRITERIA
 
 NEG_GEN_SYSTEM = f"""You are a senior creative engineer in a contract negotiation.
 
+CRITICAL: Do NOT explore the codebase. Do NOT read files. Do NOT use tools.
+You are negotiating a CONTRACT, not writing code. Output text only.
+Everything you need is in the prompt below.
+
 You receive a HIGH-LEVEL DIRECTION from the planner — a brief description
 of what this sprint should accomplish and the product vision behind it.
 The planner does NOT give you details. That's YOUR job.

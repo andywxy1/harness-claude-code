@@ -10,25 +10,25 @@ from harness.utils import parse_agreed, ensure_orchestrator_dir
 
 
 def _call_gen(prompt, session_id, workspace, is_first, model, timeout):
-    """Call generator with streaming."""
+    """Call generator with streaming. No tools — negotiation is text only."""
     result = call_claude(
         prompt=prompt, session_id=session_id, system_prompt=NEG_GEN_SYSTEM,
         workspace=workspace, is_first_turn=is_first,
         model=model, timeout=timeout,
+        allowed_tools="",  # no tools during negotiation
         on_chunk=make_stream_callback("generator"),
-        on_tool_use=make_tool_callback("generator"),
     )
     return handle_streaming_result(result, "generator")
 
 
 def _call_eval(prompt, session_id, workspace, is_first, model, timeout):
-    """Call evaluator with streaming."""
+    """Call evaluator with streaming. No tools — negotiation is text only."""
     result = call_claude(
         prompt=prompt, session_id=session_id, system_prompt=NEG_EVAL_SYSTEM,
         workspace=workspace, is_first_turn=is_first,
         model=model, timeout=timeout,
+        allowed_tools="",  # no tools during negotiation
         on_chunk=make_stream_callback("evaluator"),
-        on_tool_use=make_tool_callback("evaluator"),
     )
     return handle_streaming_result(result, "evaluator")
 

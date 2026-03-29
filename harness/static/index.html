@@ -1927,11 +1927,19 @@ async function browseFolder() {
 }
 
 function checkResumable(workspace) {
-  if (!ws || ws.readyState !== WebSocket.OPEN || !workspace) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN || !workspace) {
+    $('#cmdResume').style.display = 'none';
+    return;
+  }
   ws.send(JSON.stringify({ command: 'check_resumable', workspace }));
 }
 
-// Check on workspace input blur
+// Check on workspace input change (debounced)
+let _resumeCheckTimer;
+$('#cmdWorkspace').addEventListener('input', (e) => {
+  clearTimeout(_resumeCheckTimer);
+  _resumeCheckTimer = setTimeout(() => checkResumable(e.target.value.trim()), 500);
+});
 $('#cmdWorkspace').addEventListener('change', (e) => {
   checkResumable(e.target.value.trim());
 });

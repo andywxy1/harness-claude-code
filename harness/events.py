@@ -163,15 +163,19 @@ def make_tool_callback(agent: str):
 def handle_streaming_result(result, agent: str) -> str:
     """Process the return value from a streaming call_claude call.
 
-    Emits usage event if available, emits agent_output with full text,
-    and returns the text string.
+    When streaming was used (result is dict), the chunks already delivered
+    the content via agent_chunk events — so we only emit usage, NOT
+    agent_output (which would create a duplicate bubble).
+
+    When not streaming (result is str), we emit agent_output.
     """
     if isinstance(result, dict):
         text = result.get("text", "")
         usage = result.get("usage")
         if usage:
             bus.emit("usage", agent=agent, **{k: v for k, v in usage.items() if v is not None})
-        bus.emit("agent_output", agent=agent, text=text)
+        # Do NOT emit agent_output here — streaming chunks already showed the content.
+        # The frontend's finishAgentBubble() (triggered by agent_done) archives it.
         return text
     else:
         bus.emit("agent_output", agent=agent, text=result)
