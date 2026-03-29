@@ -147,6 +147,115 @@ def parse_agreed(response: str) -> bool:
     return has_agreed and not has_proposing
 
 
+def extract_tests_from_contract(contract: str) -> list[dict]:
+    """Extract test names/descriptions from a contract.
+
+    Looks for test function signatures like:
+    - `def test_something():` or `test_something`
+    - Lines starting with test names in backticks
+    - Numbered test items
+
+    Returns list of dicts: [{"name": "test_name", "description": "what it tests"}]
+    """
+    tests: list[dict] = []
+    seen_names: set[str] = set()
+
+    for line in contract.split("\n"):
+        stripped = line.strip()
+
+        # Python test function definitions: def test_foo():
+        m = re.match(r"def\s+(test_\w+)\s*\(", stripped)
+        if m:
+            name = m.group(1)
+            if name not in seen_names:
+                seen_names.add(name)
+                tests.append({"name": name, "description": name.replace("_", " ")})
+            continue
+
+        # Backtick test names: `test_something` possibly followed by description
+        m = re.search(r"`(test_\w+)`(?:\s*[:\-–—]\s*(.+))?", stripped)
+        if m:
+            name = m.group(1)
+            desc = m.group(2).strip() if m.group(2) else name.replace("_", " ")
+            if name not in seen_names:
+                seen_names.add(name)
+                tests.append({"name": name, "description": desc})
+            continue
+
+        # Numbered items: 1. test_something - description
+        m = re.match(r"\d+[\.\)]\s+(test_\w+)(?:\s*[:\-–—]\s*(.+))?", stripped)
+        if m:
+            name = m.group(1)
+            desc = m.group(2).strip() if m.group(2) else name.replace("_", " ")
+            if name not in seen_names:
+                seen_names.add(name)
+                tests.append({"name": name, "description": desc})
+            continue
+
+        # Lines containing test_ followed by descriptive text (bullet points etc.)
+        m = re.match(r"[-*]\s+(test_\w+)(?:\s*[:\-–—]\s*(.+))?", stripped)
+        if m:
+            name = m.group(1)
+            desc = m.group(2).strip() if m.group(2) else name.replace("_", " ")
+            if name not in seen_names:
+                seen_names.add(name)
+                tests.append({"name": name, "description": desc})
+            continue
+
+    return tests
+
+
+def parse_test_results(report: str) -> list[dict]:
+    """Extract which tests passed/failed from an eval report.
+
+    Returns list of dicts: [{"name": "test_name", "status": "PASS"|"FAIL"|"SKIP", "detail": "..."}]
+    """
+    results: list[dict] = []
+    seen_names: set[str] = set()
+
+    for line in report.split("\n"):
+        stripped = line.strip()
+
+        # Match patterns like: test_foo ... PASS, ✅ test_foo, ❌ test_foo - reason
+        # Also: test_foo: PASS, test_foo — FAIL — detail
+        m = re.search(r"(test_\w+)", stripped)
+        if not m:
+            continue
+
+        name = m.group(1)
+        if name in seen_names:
+            continue
+
+        upper = stripped.upper()
+
+        # Determine status from the line
+        if "SKIP" in upper or "SKIPPED" in upper:
+            status = "SKIP"
+        elif "FAIL" in upper or "❌" in stripped or "[P0" in stripped or "[P1" in stripped:
+            status = "FAIL"
+        elif "PASS" in upper or "✅" in stripped or "✓" in stripped:
+            status = "PASS"
+        else:
+            # Line mentions a test but no clear status — skip it
+            continue
+
+        seen_names.add(name)
+
+        # Extract detail: anything after the status keyword or after a dash/colon
+        detail = ""
+        detail_match = re.search(
+            r"(?:PASS|FAIL|SKIP|✅|❌|✓)\s*[:\-–—]?\s*(.+)",
+            stripped,
+            re.IGNORECASE,
+        )
+        if detail_match:
+            detail = detail_match.group(1).strip()
+
+        results.append({"name": name, "status": status, "detail": detail})
+
+    return results
+
+
 def ensure_orchestrator_dir(workspace: str) -> Path:
     """Create and return the .orchestrator directory."""
     orch_dir = Path(workspace) / ".orchestrator"

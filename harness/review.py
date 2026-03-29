@@ -4,7 +4,7 @@ from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
 from harness.config import config
-from harness.events import bus, make_stream_callback, handle_streaming_result
+from harness.events import bus, make_stream_callback, make_tool_callback, handle_streaming_result
 from harness.prompts.review import FINAL_REVIEW_SYSTEM
 from harness.utils import ensure_orchestrator_dir
 
@@ -35,6 +35,7 @@ def run_final_review(workspace: str) -> str:
         timeout=config.get_timeout("review"),
         model=config.get_model("reviewer"),
         on_chunk=make_stream_callback("reviewer"),
+        on_tool_use=make_tool_callback("reviewer"),
     )
 
     response = handle_streaming_result(result, "reviewer")

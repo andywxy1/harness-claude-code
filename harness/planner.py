@@ -2,7 +2,7 @@
 
 from harness.claude_session import call_claude, fresh_session_id
 from harness.config import config
-from harness.events import bus, make_stream_callback, handle_streaming_result
+from harness.events import bus, make_stream_callback, make_tool_callback, handle_streaming_result
 from harness.prompts.planner import PLANNER_SYSTEM
 from harness.utils import parse_sprint_plan
 
@@ -30,6 +30,7 @@ def run_planner(project_description: str, workspace: str) -> tuple[str, list[dic
         timeout=config.get_timeout("planner"),
         model=config.get_model("planner"),
         on_chunk=make_stream_callback("planner"),
+        on_tool_use=make_tool_callback("planner"),
     )
 
     response = handle_streaming_result(result, "planner")

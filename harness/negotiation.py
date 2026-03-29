@@ -4,7 +4,7 @@ from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
 from harness.config import config
-from harness.events import bus, make_stream_callback, handle_streaming_result
+from harness.events import bus, make_stream_callback, make_tool_callback, handle_streaming_result
 from harness.prompts.negotiation import NEG_GEN_SYSTEM, NEG_EVAL_SYSTEM
 from harness.utils import parse_agreed, ensure_orchestrator_dir
 
@@ -16,6 +16,7 @@ def _call_gen(prompt, session_id, workspace, is_first, model, timeout):
         workspace=workspace, is_first_turn=is_first,
         model=model, timeout=timeout,
         on_chunk=make_stream_callback("generator"),
+        on_tool_use=make_tool_callback("generator"),
     )
     return handle_streaming_result(result, "generator")
 
@@ -27,6 +28,7 @@ def _call_eval(prompt, session_id, workspace, is_first, model, timeout):
         workspace=workspace, is_first_turn=is_first,
         model=model, timeout=timeout,
         on_chunk=make_stream_callback("evaluator"),
+        on_tool_use=make_tool_callback("evaluator"),
     )
     return handle_streaming_result(result, "evaluator")
 

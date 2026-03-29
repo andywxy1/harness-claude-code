@@ -15,7 +15,7 @@ from harness.negotiation import negotiate_contract
 from harness.implementation import implement_and_evaluate
 from harness.review import run_final_review
 from harness.state import save_state, load_state, has_state, make_initial_state
-from harness.utils import git_init, git_commit, ensure_orchestrator_dir
+from harness.utils import git_init, git_commit, ensure_orchestrator_dir, extract_tests_from_contract
 
 
 def _extract_deferred_items(contract: str) -> list[str]:
@@ -178,6 +178,10 @@ def _execute_sprints(workspace: str, state: dict):
             bus.emit("log", source="Orchestrator",
                      message=f"Sprint {sprint_num} contract loaded from state")
             bus.emit("contract_agreed", sprint=sprint_num, text=contract)
+
+        # Emit test checklist extracted from the contract
+        bus.emit("test_checklist", sprint=sprint_num,
+                 tests=extract_tests_from_contract(contract))
 
         # ── Phase 2: Implementation ──
         bus.emit("phase_change", phase="implementation")

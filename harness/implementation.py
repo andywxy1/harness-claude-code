@@ -9,9 +9,9 @@ from pathlib import Path
 
 from harness.claude_session import call_claude, fresh_session_id
 from harness.config import config
-from harness.events import bus, make_stream_callback, handle_streaming_result
+from harness.events import bus, make_stream_callback, make_tool_callback, handle_streaming_result
 from harness.prompts.implementation import IMPL_GEN_SYSTEM, IMPL_EVAL_SYSTEM
-from harness.utils import git_commit, parse_eval_report, extract_failure_keys, ensure_orchestrator_dir
+from harness.utils import git_commit, parse_eval_report, extract_failure_keys, ensure_orchestrator_dir, parse_test_results
 from harness.negotiation import negotiate_contract
 
 DONE_SIGNAL = Path(".orchestrator/.done")
@@ -101,6 +101,7 @@ def implement_and_evaluate(
                 is_first_turn=True,
                 model=gen_model, timeout=gen_timeout,
                 on_chunk=make_stream_callback("generator"),
+                on_tool_use=make_tool_callback("generator"),
             )
         else:
             gen_prompt = (
@@ -117,6 +118,7 @@ def implement_and_evaluate(
                 is_first_turn=False,
                 model=gen_model, timeout=gen_timeout,
                 on_chunk=make_stream_callback("generator"),
+                on_tool_use=make_tool_callback("generator"),
             )
 
         gen_response = handle_streaming_result(result, "generator")
@@ -153,6 +155,7 @@ def implement_and_evaluate(
             is_first_turn=True,
             model=eval_model, timeout=eval_timeout,
             on_chunk=make_stream_callback("evaluator"),
+            on_tool_use=make_tool_callback("evaluator"),
         )
 
         eval_response = handle_streaming_result(result, "evaluator")
@@ -167,6 +170,8 @@ def implement_and_evaluate(
         status, reason = parse_eval_report(report)
         bus.emit("eval_result", sprint=sprint_num, cycle=cycle,
                  status=status, reason=reason, report=report)
+        bus.emit("test_results", sprint=sprint_num,
+                 results=parse_test_results(report))
 
         if status == "PASS":
             git_commit(workspace, f"Sprint {sprint_num} complete")

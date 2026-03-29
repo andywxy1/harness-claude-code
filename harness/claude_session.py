@@ -20,6 +20,7 @@ def call_claude(
     allowed_tools: str | None = None,
     model: str = "opus",
     on_chunk: Callable[[str], None] | None = None,
+    on_tool_use: Callable[[dict], None] | None = None,
 ) -> str | dict:
     """Call Claude Code CLI with session support.
 
@@ -34,6 +35,9 @@ def call_claude(
         model: Model to use (e.g. "opus", "sonnet", "haiku").
         on_chunk: Optional callback for streaming. When provided, each text
             chunk from the assistant is passed to this function as it arrives.
+        on_tool_use: Optional callback for tool events. When provided and
+            streaming is active, tool_use and tool_result events are parsed
+            and passed as dicts with keys: tool, input_preview, status.
 
     Returns:
         When on_chunk is None: the text response from Claude (str).
@@ -124,7 +128,42 @@ def call_claude(
                         on_chunk(chunk)
                         accumulated_text += chunk
 
-            elif msg_type == "result":
+            # --- Tool use events ---
+            if on_tool_use:
+                # Check assistant messages for tool_use content blocks
+                if msg_type == "assistant":
+                    for block in msg.get("message", {}).get("content", []):
+                        if block.get("type") == "tool_use":
+                            tool_name = block.get("name", "unknown")
+                            tool_input = json.dumps(block.get("input", {}))
+                            on_tool_use({
+                                "tool": tool_name,
+                                "input_preview": tool_input[:150],
+                                "status": "started",
+                            })
+
+                # content_block_start with tool_use type
+                elif msg_type == "content_block_start":
+                    cb = msg.get("content_block", {})
+                    if cb.get("type") == "tool_use":
+                        tool_name = cb.get("name", "unknown")
+                        tool_input = json.dumps(cb.get("input", {}))
+                        on_tool_use({
+                            "tool": tool_name,
+                            "input_preview": tool_input[:150],
+                            "status": "started",
+                        })
+
+                # Tool result messages indicate completion
+                elif msg_type == "tool_result":
+                    tool_name = msg.get("tool_name", msg.get("name", "unknown"))
+                    on_tool_use({
+                        "tool": tool_name,
+                        "input_preview": "",
+                        "status": "completed",
+                    })
+
+            if msg_type == "result":
                 # Final summary message with usage info.
                 result_data = msg.get("result", msg)
                 usage_raw = result_data.get("usage")

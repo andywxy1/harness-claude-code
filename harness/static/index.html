@@ -294,6 +294,93 @@ body {
 }
 .phase-item.complete .marker { background: var(--text-1); }
 .phase-item.error .marker { background: var(--error); }
+.phase-item.active-filter {
+  background: var(--bg-3);
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+.phase-item.active-filter .marker {
+  background: var(--accent);
+  box-shadow: 0 0 4px var(--accent);
+}
+.phase-filter-all {
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.phase-filter-all:hover { background: var(--bg-2); }
+.phase-filter-all.active-filter {
+  background: var(--bg-3);
+  color: var(--accent);
+  border-left: 2px solid var(--accent);
+}
+
+/* ─── Tool Call Inline ─────────────────── */
+.tool-call-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  margin: 4px 0;
+  font-size: 10px;
+  color: var(--text-2);
+  border-left: 2px solid var(--border);
+  font-family: var(--mono);
+  line-height: 1.4;
+}
+.tool-call-inline .tool-icon {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.tool-call-inline .tool-name {
+  font-weight: 500;
+  color: var(--text-1);
+}
+.tool-call-inline .tool-input {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+}
+
+/* ─── Test Checklist ──────────────────── */
+.test-checklist {
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.test-checklist-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.test-check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: var(--text-1);
+}
+.test-check-item .test-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
 
 .sub-items { margin-left: 18px; }
 .sub-item {
@@ -1143,6 +1230,12 @@ const S = {
   projectCompleted: false,
   // Streaming agent chunks
   activeBubbles: {},  // agent -> {el, text}
+  // Phase filtering
+  activePhaseFilter: 'all',
+  // Tool calls
+  toolCalls: [],      // {agent, tool, input, ts, phase}
+  // Test checklist
+  testChecklist: [],   // {name, status} status: 'pending'|'pass'|'fail'
   // Usage tracking
   totalInputTokens: 0,
   totalOutputTokens: 0,
@@ -1195,6 +1288,9 @@ function connect() {
     } else if (data.type === 'agent_chunk') {
       // Streaming chunks: do NOT add to logEvents (too noisy)
       handleAgentChunk(data);
+    } else if (data.type === 'agent_tool') {
+      // Tool calls: route through handleEvent for state tracking
+      handleEvent(data);
     } else {
       handleEvent(data);
     }
@@ -1243,8 +1339,28 @@ function handleEvent(ev) {
       break;
 
     case 'agent_output':
-      S.outputs.push({ agent: ev.agent, text: ev.text, ts: ev.ts });
+      S.outputs.push({ agent: ev.agent, text: ev.text, ts: ev.ts, phase: S.state.phase || 'unknown' });
       if (S.activeTab === 'output') renderOutputs();
+      break;
+
+    case 'agent_tool':
+      S.toolCalls.push({ agent: ev.agent, tool: ev.tool, input: ev.input || '', ts: ev.ts, phase: S.state.phase || 'unknown' });
+      renderToolCall(ev);
+      break;
+
+    case 'test_checklist':
+      S.testChecklist = (ev.tests || []).map(t => ({ name: t, status: 'pending' }));
+      renderTestChecklist();
+      break;
+
+    case 'test_results':
+      if (ev.results) {
+        for (const r of ev.results) {
+          const item = S.testChecklist.find(t => t.name === r.name);
+          if (item) item.status = r.status === 'PASS' ? 'pass' : (r.status === 'FAIL' ? 'fail' : 'pending');
+        }
+        renderTestChecklist();
+      }
       break;
 
     case 'negotiation_round':
@@ -1367,10 +1483,13 @@ function renderSidebar() {
     sb.innerHTML = '<div class="phase-group"><div class="phase-label">Phases</div><div style="color:var(--text-2);font-size:11px;padding:6px 10px">Waiting...</div></div>';
     return;
   }
+  const f = S.activePhaseFilter;
   let html = '<div class="phase-group"><div class="phase-label">Pipeline</div>';
+  html += `<div class="phase-filter-all ${f === 'all' ? 'active-filter' : ''}" data-phase-filter="all">All Phases</div>`;
   for (const p of S.phases) {
-    const cls = p.status === 'active' ? 'active' : p.status === 'complete' ? 'complete' : '';
-    html += `<div class="phase-item ${cls}"><div class="marker"></div>${p.id}</div>`;
+    const statusCls = p.status === 'active' ? 'active' : p.status === 'complete' ? 'complete' : '';
+    const filterCls = f === p.id ? 'active-filter' : '';
+    html += `<div class="phase-item ${statusCls} ${filterCls}" data-phase-filter="${p.id}"><div class="marker"></div>${p.id}</div>`;
     if (p.subItems.length) {
       html += '<div class="sub-items">';
       for (const si of p.subItems) {
@@ -1381,6 +1500,15 @@ function renderSidebar() {
   }
   html += '</div>';
   sb.innerHTML = html;
+
+  // Attach click handlers for phase filtering
+  sb.querySelectorAll('[data-phase-filter]').forEach(el => {
+    el.addEventListener('click', () => {
+      S.activePhaseFilter = el.dataset.phaseFilter;
+      renderSidebar();
+      renderOutputs();
+    });
+  });
 }
 
 function getBubbleClass(agent) {
@@ -1405,34 +1533,82 @@ function getBubbleLabel(agent) {
 
 function renderOutputs() {
   const sec = $('#sec-output');
-  if (!S.outputs.length) {
-    sec.innerHTML = '<div class="empty-state"><strong>Waiting for agents to start...</strong><br>The orchestrator will stream output here as agents work.</div>';
+  const filter = S.activePhaseFilter;
+  let filtered = S.outputs;
+  if (filter !== 'all') {
+    filtered = S.outputs.filter(o => o.phase === filter);
+  }
+  if (!filtered.length) {
+    const msg = filter !== 'all'
+      ? `<strong>No output for phase: ${capitalize(filter)}</strong><br>Waiting for agents in this phase...`
+      : '<strong>Waiting for agents to start...</strong><br>The orchestrator will stream output here as agents work.';
+    sec.innerHTML = `<div class="empty-state">${msg}</div>`;
     return;
   }
   let html = '';
-  // Show last 30 outputs
-  const recent = S.outputs.slice(-30);
+  const recent = filtered.slice(-30);
   for (const o of recent) {
     const bubbleCls = getBubbleClass(o.agent);
     const label = getBubbleLabel(o.agent);
     const ts = o.ts ? o.ts.substring(11, 19) : '';
     const mdContent = renderMarkdown(o.text);
+    // Collect tool calls that happened during this output's timeframe
+    const toolsHtml = getToolCallsHtml(o);
     html += `<div class="chat-bubble ${bubbleCls}">
       <div class="bubble-header">
         <span class="bubble-label">${label}</span>
         <span class="bubble-ts">${ts}</span>
       </div>
       <div class="md-body">${mdContent}</div>
+      ${toolsHtml}
     </div>`;
   }
   sec.innerHTML = html;
   sec.scrollTop = sec.scrollHeight;
 }
 
+function getToolCallsHtml(output) {
+  // Show tool calls for the same agent in the same phase
+  const tools = S.toolCalls.filter(t => t.agent === output.agent && t.phase === output.phase);
+  if (!tools.length) return '';
+  let html = '';
+  for (const t of tools.slice(-5)) {
+    const icon = getToolIcon(t.tool);
+    const inputPreview = (t.input || '').substring(0, 60).replace(/\n/g, ' ');
+    html += `<div class="tool-call-inline">
+      <span class="tool-icon">${icon}</span>
+      <span class="tool-name">${escHtml(t.tool)}</span>
+      <span class="tool-input">${escHtml(inputPreview)}${(t.input||'').length > 60 ? '...' : ''}</span>
+    </div>`;
+  }
+  return html;
+}
+
+function getToolIcon(tool) {
+  if (!tool) return '\u26A1';
+  const t = tool.toLowerCase();
+  if (t.includes('bash') || t.includes('shell') || t.includes('exec')) return '\u26A1';
+  if (t.includes('read') || t.includes('file') || t.includes('cat')) return '\uD83D\uDCC4';
+  if (t.includes('write') || t.includes('edit')) return '\u270F\uFE0F';
+  if (t.includes('search') || t.includes('grep') || t.includes('glob')) return '\uD83D\uDD0D';
+  if (t.includes('web') || t.includes('fetch') || t.includes('http')) return '\uD83C\uDF10';
+  return '\u26A1';
+}
+
 // ─── Streaming Agent Chunks ──────────────────
 function handleAgentChunk(ev) {
   const agent = ev.agent || 'unknown';
   const sec = $('#sec-output');
+  const currentPhase = S.state.phase || 'unknown';
+
+  // If phase filter is active and this chunk doesn't match, skip rendering
+  if (S.activePhaseFilter !== 'all' && S.activePhaseFilter !== currentPhase) {
+    // Still accumulate text for when the filter changes
+    if (S.activeBubbles[agent]) {
+      S.activeBubbles[agent].text += (ev.text || '');
+    }
+    return;
+  }
 
   // Clear empty state if present
   const empty = sec.querySelector('.empty-state');
@@ -1455,7 +1631,7 @@ function handleAgentChunk(ev) {
       <span class="typing-indicator"></span>`;
     sec.appendChild(el);
 
-    S.activeBubbles[agent] = { el, text: '' };
+    S.activeBubbles[agent] = { el, text: '', phase: S.state.phase || 'unknown' };
   }
 
   const bubble = S.activeBubbles[agent];
@@ -1464,6 +1640,29 @@ function handleAgentChunk(ev) {
   mdBody.innerHTML = renderMarkdown(bubble.text);
 
   // Auto-scroll the output section
+  const mainContent = $('#mainContent');
+  mainContent.scrollTop = mainContent.scrollHeight;
+}
+
+function renderToolCall(ev) {
+  const agent = ev.agent || 'unknown';
+  const bubble = S.activeBubbles[agent];
+  if (!bubble) return; // No active bubble to attach to
+
+  const icon = getToolIcon(ev.tool);
+  const inputPreview = (ev.input || '').substring(0, 60).replace(/\n/g, ' ');
+  const toolEl = document.createElement('div');
+  toolEl.className = 'tool-call-inline';
+  toolEl.innerHTML = `<span class="tool-icon">${icon}</span><span class="tool-name">${escHtml(ev.tool)}</span><span class="tool-input">${escHtml(inputPreview)}${(ev.input||'').length > 60 ? '...' : ''}</span>`;
+
+  // Insert before the typing indicator
+  const indicator = bubble.el.querySelector('.typing-indicator');
+  if (indicator) {
+    bubble.el.insertBefore(toolEl, indicator);
+  } else {
+    bubble.el.appendChild(toolEl);
+  }
+
   const mainContent = $('#mainContent');
   mainContent.scrollTop = mainContent.scrollHeight;
 }
@@ -1479,7 +1678,7 @@ function finishAgentBubble(agent) {
 
   // Also push the final text into S.outputs so it persists on re-render
   if (bubble.text) {
-    S.outputs.push({ agent, text: bubble.text, ts: new Date().toISOString() });
+    S.outputs.push({ agent, text: bubble.text, ts: new Date().toISOString(), phase: bubble.phase || S.state.phase || 'unknown' });
   }
 
   delete S.activeBubbles[agent];
@@ -1561,7 +1760,7 @@ function parseEvalChecklist(text) {
 
 function renderEvalReports() {
   const sec = $('#sec-eval');
-  if (!S.evalReports.length) {
+  if (!S.evalReports.length && !S.testChecklist.length) {
     sec.innerHTML = '<div class="empty-state">No evaluation report yet.</div>';
     return;
   }
@@ -1603,6 +1802,28 @@ function renderEvalReports() {
     </div>`;
   }
   sec.innerHTML = html;
+  // Re-render test checklist at top of eval tab
+  renderTestChecklist();
+}
+
+function renderTestChecklist() {
+  const sec = $('#sec-eval');
+  let checklistEl = sec.querySelector('.test-checklist');
+  if (!S.testChecklist.length) {
+    if (checklistEl) checklistEl.remove();
+    return;
+  }
+  if (!checklistEl) {
+    checklistEl = document.createElement('div');
+    checklistEl.className = 'test-checklist';
+    sec.insertBefore(checklistEl, sec.firstChild);
+  }
+  let html = '<div class="test-checklist-title">Test Checklist</div>';
+  for (const t of S.testChecklist) {
+    const icon = t.status === 'pass' ? '\u2705' : t.status === 'fail' ? '\u274C' : '\u2B1C';
+    html += `<div class="test-check-item"><span class="test-icon">${icon}</span><span>${escHtml(t.name)}</span></div>`;
+  }
+  checklistEl.innerHTML = html;
 }
 
 function updateStatus() {
@@ -1827,6 +2048,9 @@ function resetProject() {
   S.currentSprint = 0;
   S.state = {};
   S.activeBubbles = {};
+  S.activePhaseFilter = 'all';
+  S.toolCalls = [];
+  S.testChecklist = [];
   S.totalInputTokens = 0;
   S.totalOutputTokens = 0;
   S.totalCost = 0;

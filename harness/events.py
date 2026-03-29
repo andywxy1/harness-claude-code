@@ -51,12 +51,12 @@ class EventBus:
         # Update internal state based on event type
         self._update_state(event)
 
-        # Store in history (skip high-frequency chunk events)
-        if event_type != "agent_chunk":
+        # Store in history (skip high-frequency streaming events)
+        if event_type not in ("agent_chunk", "agent_tool"):
             self._history.append(event)
 
-        # Console output (skip chunks — they'd flood the terminal)
-        if event_type != "agent_chunk":
+        # Console output (skip chunks and tool events — they'd flood the terminal)
+        if event_type not in ("agent_chunk", "agent_tool"):
             self._print_event(event)
 
         # Notify subscribers
@@ -151,6 +151,13 @@ def make_stream_callback(agent: str):
     def on_chunk(text: str):
         bus.emit("agent_chunk", agent=agent, text=text)
     return on_chunk
+
+
+def make_tool_callback(agent: str):
+    """Create an on_tool_use callback that emits agent_tool events."""
+    def on_tool_use(info: dict):
+        bus.emit("agent_tool", agent=agent, **info)
+    return on_tool_use
 
 
 def handle_streaming_result(result, agent: str) -> str:
