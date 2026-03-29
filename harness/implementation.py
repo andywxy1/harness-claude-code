@@ -79,6 +79,9 @@ def implement_and_evaluate(
     eval_model = config.get_model("implementation_evaluator")
     eval_timeout = config.get_timeout("evaluation")
 
+    max_rollbacks = 2
+    rollback_count = 0
+
     # Write contract to disk so agents can also read it via file tools
     contract_path = Path(workspace) / ".orchestrator" / "contract.md"
     contract_path.write_text(contract, encoding="utf-8")
@@ -221,8 +224,18 @@ def implement_and_evaluate(
         repeated = [k for k, v in failure_tracker.items() if v >= 3]
 
         if repeated:
+            rollback_count += 1
+
+            if rollback_count > max_rollbacks:
+                bus.emit("error",
+                         message=f"Max rollbacks ({max_rollbacks}) exceeded. "
+                                 f"Repeated failures: {repeated[:3]}. "
+                                 "Accepting current state — manual intervention needed.")
+                git_commit(workspace, f"Sprint {sprint_num} — max rollbacks, needs manual fix")
+                return contract
+
             bus.emit("rollback", sprint=sprint_num,
-                     reason=f"Same failures repeated 3x: {repeated[:3]}")
+                     reason=f"Same failures repeated 3x (rollback {rollback_count}/{max_rollbacks}): {repeated[:3]}")
             impl_state_path.unlink(missing_ok=True)
 
             contract = renegotiate_contract(
